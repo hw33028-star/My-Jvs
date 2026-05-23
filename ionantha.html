@@ -1,0 +1,1926 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Ionantha: Bedrock Edition — Living World</title>
+  <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+  <style>
+    :root {
+      --glass: rgba(0, 0, 0, 0.75);
+      --text: #ffffff;
+      --accent: #2ecc71;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #000;
+      overflow: hidden;
+      user-select: none;
+      color: var(--text);
+    }
+    canvas { display: block; }
+
+    .full-screen {
+      position: fixed; inset: 0; z-index: 1000;
+      background: rgba(0,0,0,0.7); backdrop-filter: blur(8px);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+    }
+    .hud {
+      position: absolute; inset: 0; pointer-events: none; z-index: 50;
+      display: none; justify-content: space-between; padding: 15px;
+    }
+    .side-col {
+      width: 280px; display: flex; flex-direction: column; gap: 10px; pointer-events: none;
+    }
+    .panel {
+      background: var(--glass); backdrop-filter: blur(12px);
+      padding: 14px; border-radius: 16px;
+      border: 1px solid rgba(255,255,255,0.2);
+      pointer-events: auto; box-shadow: 0 8px 20px rgba(0,0,0,0.5);
+    }
+    .overlay {
+      position: fixed; inset: 0; z-index: 200;
+      background: rgba(0,0,0,0.85); backdrop-filter: blur(6px);
+      display: none; align-items: center; justify-content: center;
+    }
+    .plant-card {
+      background: rgba(255,255,255,0.08); border-radius: 12px;
+      padding: 10px; margin-bottom: 8px; border: 1px solid rgba(255,255,255,0.15);
+      font-size: 0.85em; position: relative;
+    }
+    .gen-tag {
+      position: absolute; top: 8px; right: 8px;
+      background: #9b59b6; padding: 2px 8px; border-radius: 8px;
+      font-size: 0.7em; font-weight: bold;
+    }
+    .bar-bg {
+      height: 6px; background: #2c3e50; border-radius: 4px; margin: 4px 0; overflow: hidden;
+    }
+    
+    .bar-fill { height: 100%; transition: width 0.3s; }
+    .fill-green { background: #2ecc71; } .fill-blue { background: #3498db; } .fill-red { background: #e74c3c; }
+    .btn {
+      border: none; padding: 10px 12px; border-radius: 8px; cursor: pointer;
+      font-weight: bold; color: white; display: inline-flex; align-items: center;
+      justify-content: center; transition: all 0.2s; font-size: 0.9em;
+      background: #34495e; gap: 6px; pointer-events: auto; z-index: 60;
+    }
+    .btn:hover { filter: brightness(1.2); transform: translateY(-2px); }
+    .btn-mist { background: #3498db; } .btn-market { background: #f39c12; }
+    .btn-lab { background: linear-gradient(135deg, hsl(194, 76%, 66%) 0%, #0554ff 100%); }
+    .btn-sell { background: #27ae60; } .btn-vault { background: #16a085; }
+    .btn-harvest { background: #e67e22; }
+    .btn-glow {
+      background: linear-gradient(45deg, #00f2fe, #4facfe);
+      width: 100%; margin-top: 10px; box-shadow: 0 0 12px #4facfe; animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse { 0%{opacity:0.8;} 50%{opacity:1;} 100%{opacity:0.8;} }
+    .btn-small { padding: 6px 10px; font-size: 0.8em; }
+    .btn-close { background: #c0392b; position: absolute; top: 12px; right: 12px; }
+    input.name-input {
+      background: transparent; border: none; border-bottom: 1px solid #aaa;
+      color: white; font-weight: bold; width: 70%; font-size: 1em; outline: none;
+    }
+    #toast {
+      position: fixed; bottom: 60px; left: 50%; transform: translateX(-50%);
+      background: white; color: #111; padding: 12px 28px; border-radius: 50px;
+      font-weight: bold; z-index: 5000; visibility: hidden; transition: 0.2s;
+    }
+    #toast.show { visibility: visible; }
+    .context-menu {
+      position: absolute; z-index: 400; background: rgba(30,30,40,0.95);
+      backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.3);
+      border-radius: 12px; padding: 8px; display: none; flex-direction: column; gap: 5px;
+      min-width: 150px; box-shadow: 0 12px 30px rgba(0,0,0,0.7);
+    }
+    .context-menu button { width: 100%; text-align: left; background: transparent; border: none; color: white; padding: 8px; border-radius: 6px; cursor: pointer; }
+    .context-menu button:hover { background: rgba(255,255,255,0.15); }
+    #save-code-modal textarea {
+      width: 100%; height: 80px; background: rgba(0,0,0,0.5); color: white; border: 1px solid #555; border-radius: 8px; padding: 8px; font-family: monospace; resize: vertical;
+    }
+    .modal-panel { width: 420px; padding: 25px; border-radius: 20px; background: var(--glass); backdrop-filter: blur(14px); }
+    .plant-card span[onclick]:hover {
+      color: #2ecc71;
+  }
+  </style>
+</head>
+<body>
+  <div id="canvas-container"></div>
+  <div id="toast">Ready</div>
+
+  <!-- Background Music -->
+  <audio id="bg-music" preload="auto">
+    <source src="https://raw.githubusercontent.com/hw33028-star/My-Jvs/main/Elektronomia_-_Sky_High_NCS_Release-300693150%20(1).mp3" type="audio/mpeg">
+    Your browser does not support the audio element.
+  </audio>
+
+  <!-- HOME MENU -->
+  <div id="home-menu" class="full-screen">
+    <h1 style="font-size:5em; margin-bottom:0.2em; text-shadow:0 0 30px #2ecc71;">IONANTHA</h1>
+    <p style="letter-spacing:6px; margin-bottom:40px;">BEDROCK EDITION — LIVING WORLD</p>
+    <div style="display:flex; gap:20px; margin-bottom:30px;">
+      <button class="btn btn-mist" style="padding:15px 30px;" onclick="startGame('Scaposa')">Scaposa</button>
+      <button class="btn btn-mist" style="padding:15px 30px;" onclick="startGame('Bulbosa')">Bulbosa</button>
+      <button class="btn btn-mist" style="padding:15px 30px;" onclick="startGame('Mexca')">Mexca</button>
+      <button class="btn btn-small" onclick="document.getElementById('admin-console').style.display='flex'" style="position:fixed; bottom:20px; right:20px; opacity:0.4;">⚙️</button>
+    </div>
+    <div style="display:flex; gap:15px; margin-bottom:30px;">
+      <button class="btn btn-save" onclick="loadGame()">📂 Load Save</button>
+      <button class="btn btn-market" onclick="openSaveCodeModal()">🔑 Save Code</button>
+    </div>
+    <button class="btn btn-mist" onclick="toggleMusic()" style="margin-top:20px;">🎵 Toggle Music</button>
+  </div>
+
+  <!-- GAME UI -->
+  <div id="game-ui" class="hud">
+    <div class="side-col">
+      <div class="panel" style="display:flex; justify-content:space-between; align-items:center;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span id="clock-display">☀️ 12:00</span>
+          <span id="date-display" style="font-size:0.9em;">📅 Jan 1</span>
+          <span id="weather-icon"></span>
+          <button class="btn btn-small" onclick="changeZoom(-5)">-</button>
+          <button class="btn btn-small" onclick="changeZoom(5)">+</button>
+        </div>
+        <div style="display:flex; gap:5px;">
+          <button class="btn btn-small btn-vault" onclick="openMenu('inv-menu')">🎒</button>
+          <button class="btn btn-small btn-save" onclick="openSaveCodeModal()">💾</button>
+        </div>
+      </div>
+      <div class="panel">
+        <h3 style="margin:0 0 8px 0;">📖 Garden Log</h3>
+        <div id="total-plants" style="font-size:0.8em; opacity:0.7; margin-bottom:6px;">Total plants: 0</div>
+        <div id="plant-list" style="max-height:55vh; overflow-y:auto; padding-right:4px;"></div>
+      </div>
+      <button id="water-all-btn" class="btn btn-mist"  onclick="waterAll()">💧 WATER ALL</button>
+      <button id="compost-all-btn" class="btn btn-trim"  onclick="compostAll()">♻️ COMPOST ALL</button>
+      <button id="organize-btn" class="btn btn-lab" onclick="organizePlants()">📐 ORGANIZE</button>
+    </div>
+
+    <div class="side-col" style="align-items: flex-end;">
+      <div class="panel" style="width:100%;">
+        <div style="display:flex; justify-content:space-between;">
+          <span>💰 Funds</span> <b style="color:#2ecc71;">$<span id="money-display">50</span></b>
+        </div>
+        <div style="display:flex; justify-content:space-between; margin-top:5px;">
+          <span>🧪 Compost</span> <b id="compost-display">0/3</b>
+        </div>
+        <div style="display:flex; justify-content:space-between; margin-top:5px;">
+          <span>🏝️ Land</span> <b id="land-size">40m</b>
+        </div>
+        <button id="glow-btn" class="btn btn-glow" style="display:none;" onclick="activateGlow()">✨ ACTIVATE GLOW</button>
+      </div>
+      <button class="btn btn-market" style="width:100%; margin-top:8px;" onclick="openMenu('market-menu')">🛒 MARKET & LAB</button>
+      <!-- RESOURCE INVENTORY PANEL -->
+      <div class="panel" id="resource-panel" style="width:100%; margin-top:8px;">
+        <h4 style="margin:0 0 8px 0;">📦 Resources</h4>
+        <div id="resource-list" style="display:flex; flex-wrap:wrap; gap:8px; font-size:0.85em;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MARKET MENU -->
+  <div id="market-menu" class="overlay">
+    <div class="panel" style="width:420px; max-height:80vh; overflow-y:auto;">
+      <h2 style="color:#f39c12; margin-top:0;">🧬 Lab & Nursery</h2>
+      <div style="background:rgba(255,255,255,0.08); padding:12px; border-radius:12px; margin-bottom:15px;">
+        <h4 style="margin-top:0;">🧬 Hybridization</h4>
+        <div style="display:flex; justify-content:space-between; font-size:0.9em;">
+          <span>P1: <b id="p1-txt">None</b></span>
+          <span>P2: <b id="p2-txt">None</b></span>
+        </div>
+        <button class="btn btn-lab" style="width:100%; margin-top:8px;" onclick="breed()">Create Hybrid ($300)</button>
+      </div>
+      <h4>🐷 Animals</h4>
+      <div class="inv-item"><b>Pig</b> ($150) <button class="btn btn-mist btn-small" onclick="buyItem('pig')">Buy</button></div>
+      <div class="inv-item"><b>Farmer Pig</b> ($500) <button class="btn btn-mist btn-small" onclick="buyItem('farmer')">Hire</button></div>
+      <h4>🌱 Plants</h4>
+      <div class="inv-item"><b>Xerographica</b> ($800) <button class="btn btn-mist btn-small" onclick="buyItem('Xero')">Buy</button></div>
+      <div class="inv-item"><b>Stricta</b> ($120) <button class="btn btn-mist btn-small" onclick="buyItem('Stricta')">Buy</button></div>
+      <div class="inv-item"><b>Fuchsii</b> ($400) <button class="btn btn-mist btn-small" onclick="buyItem('Fuchsii')">Buy</button></div>
+      <div class="inv-item"><b>Snowball</b> ($500) <button class="btn btn-mist btn-small" onclick="buyItem('Snowball')">Buy</button></div>
+      <div class="inv-item"><b>Fuego</b> ($250) <button class="btn btn-mist btn-small" onclick="buyItem('Fuego')">Buy</button></div>
+      <h4>📦 Resources</h4>
+      <div class="inv-item"><b>Wood</b> ($15) <button class="btn btn-sell btn-small" onclick="sellResource('wood')">Sell</button></div>
+      <div class="inv-item"><b>Stone</b> ($8) <button class="btn btn-sell btn-small" onclick="sellResource('stone')">Sell</button></div>
+      <div class="inv-item"><b>Fruit</b> ($10) <button class="btn btn-sell btn-small" onclick="sellResource('fruit')">Sell</button></div>
+      <div class="inv-item"><b>Gold</b> ($200) <button class="btn btn-sell btn-small" onclick="sellResource('gold')">Sell</button></div>
+      <div class="inv-item"><b>Diamond</b> ($400) <button class="btn btn-sell btn-small" onclick="sellResource('diamond')">Sell</button></div>
+
+      <h4>🧬 DNA Vault</h4>
+      <div id="vault-list" style="max-height:120px; overflow-y:auto;"></div>
+      <button class="btn btn-save" style="width:100%; margin-top:12px;" onclick="buyLand()">🏝️ Buy Land Expansion ($2000)</button>
+      <button class="btn btn-save" style="width:100%; margin-top:8px;" onclick="closeMenus()">Return</button>
+    </div>
+  </div>
+  <!-- INVENTORY MENU -->
+  <div id="inv-menu" class="overlay">
+    <div class="panel" style="width:360px;">
+      <h2>🎒 Seed Inventory</h2>
+      <div id="inv-list" style="max-height:300px; overflow-y:auto; margin-bottom:15px;"></div>
+      <button class="btn btn-mist" style="width:100%" onclick="closeMenus()">Close</button>
+    </div>
+  </div>
+
+  <!-- CONTEXT MENU (floating) -->
+  <div id="context-menu" class="context-menu"></div>
+
+  <!-- SAVE CODE MODAL -->
+  <div id="save-code-modal" class="overlay">
+    <div class="modal-panel">
+      <h2>🔐 Save Code</h2>
+      <p style="font-size:0.9em; margin:8px 0;">Copy this code and store it safely. You can reload your world anytime.</p>
+      <textarea id="save-code-text" readonly></textarea>
+      <div style="display:flex; gap:10px; margin-top:12px;">
+        <button class="btn btn-mist" onclick="copySaveCode()">📋 Copy</button>
+        <button class="btn btn-lab" onclick="downloadSaveFile()">⬇️ Download</button>
+      </div>
+      <hr style="margin:15px 0; border-color:#555;">
+      <p style="font-size:0.9em;">Paste a previously saved code to restore:</p>
+      <textarea id="load-code-text" placeholder="Paste save code here..."></textarea>
+      <button class="btn btn-market" style="width:100%; margin-top:8px;" onclick="importSaveCode()">📥 Import Code</button>
+      <button class="btn btn-save" style="width:100%; margin-top:6px;" onclick="closeSaveCodeModal()">Close</button>
+    </div>
+  </div>
+
+  <script>
+    // ---------- MUSIC SETUP ----------
+    const gameMusic = document.getElementById('bg-music');
+    const playlist = [
+    "https://github.com/hw33028-star/My-Jvs/blob/main/Elektronomia_-_Sky_High_NCS_Release-300693150%20(1).mp3",
+    "https://github.com/hw33028-star/My-Jvs/blob/main/y2mate.com%20-%20Vicetone%20%20Tony%20Igy%20%20Astronomia.mp3"
+    ];
+    let currentTrackIndex = 0;
+    gameMusic.loop = false;
+    gameMusic.volume = 0.2;
+
+    gameMusic.addEventListener('ended', function() {
+      currentTrackIndex++;
+      if (currentTrackIndex >= playlist.length) {
+        currentTrackIndex = 0;
+      }
+      gameMusic.src = playlist[currentTrackIndex];
+      gameMusic.load();
+      gameMusic.play().catch(err => console.log("Playback interrupted"));
+      console.log("Now playing: " + playlist[currentTrackIndex]);
+    });
+
+    // ---------- GLOBAL GAME STATE ----------
+    let currentDate = { year: 2026, month: 1, day: 1 };
+    let prevHour = 0;
+    let isChristmas = false;
+    let christmasGiftYear = 0;   // last year Santa visited
+    let isFireMode = false;
+    let scene, camera, renderer, clock;
+    let ambient, sun, moon;
+    let ground, groundRadius = 40;
+    let garden = [], inventory = [], vault = [], breedSlots = [null, null];
+    let animals = [];
+    let trees = [], rocks = [];
+    let resources = { wood: 0, stone: 0, fruit: 0, gold: 0, diamond: 0 };
+    let money = 50, gameTime = 12, compost = 0;
+    let zoomLevel = 28, targetZoom = 28;
+    let weather = "clear";
+    let rainSystem, snowSystem;
+    let fountainGroup, fountainParticles = [], fountainPoints;
+    let campfireGroup, firePoints;
+    let selectedPlant = null, dragPlane = new THREE.Plane(new THREE.Vector3(0,1,0), 0);
+    let raycaster = new THREE.Raycaster();
+    let mouse = new THREE.Vector2();
+    let contextTarget = null;
+    let incomeAccum = 0;
+    let musicPlaying = false;
+    let cameraTarget = new THREE.Vector3(0, 0, 0);
+    let cameraAngle = 0;          // horizontal rotation (radians)
+    let isDraggingMap = false;
+    let lastMouse = new THREE.Vector2();
+
+    const SPECIES = {
+      'Scaposa': { c: 0x4caf50, b: 0xff3b3b },
+      'Bulbosa': { c: 0x2e7d32, b: 0x8e44ad },
+      'Mexca':   { c: 0x81c784, b: 0xf48fb1 },
+      'Stricta': { c: 0xaed581, b: 0x9e1b1b },
+      'Xero':    { c: 0xb9fbc0, b: 0xffeb3b, xero: true },
+      'Snowball': { c: 0xa8d5a8, b: 0x9b59b6, snowball: true },
+      'Fuchsii':  { c: 0xb0d0b0, b: 0xff69b4, fuchsii: true },
+      'Fuego':    { c: 0xb8e0b8, b: 0xff3333, fuego: true },
+      'Hybrid':   { c: 0xaaaaaa, b: 0xffffff }
+    };
+    const FOUNTAIN_RADIUS = 3.0;   // safe distance from fountain centre
+    // ---------- ADMIN CONSOLE ----------
+    let adminLoggedIn = false;
+
+    // Toggle admin console with ~ key (backquote)
+    window.addEventListener('keydown', (e) => {
+        if (e.key === '`' || e.code === 'Backquote') {
+            e.preventDefault();
+            const panel = document.getElementById('admin-console');
+            panel.style.display = panel.style.display === 'flex' ? 'none' : 'flex';
+            if (adminLoggedIn) {
+                document.getElementById('admin-login').style.display = 'none';
+                document.getElementById('admin-terminal').style.display = 'flex';
+            }
+        }
+    });
+    function organizePlants() {
+        const groups = {};
+        garden.forEach(p => {
+            if (p.dead) return;
+            if (!groups[p.type]) groups[p.type] = [];
+            groups[p.type].push(p);
+        });
+
+        // Flatten groups in order of species (alphabetical by type)
+        const speciesOrder = Object.keys(groups).sort();
+        const allPlants = [];
+        speciesOrder.forEach(species => {
+            allPlants.push(...groups[species]);
+        });
+
+        const spacing = 3.8;
+        const innerSize = FOUNTAIN_RADIUS;   // empty 8×8 square around fountain
+        const maxCoord = groundRadius - 14;         // stay well inside island
+
+        let index = 0;
+        // Row‑by‑row grid, skipping the central fountain square
+        for (let x = -maxCoord; x <= maxCoord; x += spacing) {
+            for (let z = -maxCoord; z <= maxCoord; z += spacing) {
+                if (Math.abs(x) < innerSize && Math.abs(z) < innerSize) continue;
+                if (index >= allPlants.length) break;
+                const p = allPlants[index];
+                p.mesh.position.set(x, 0, z);
+                index++;
+            }
+            if (index >= allPlants.length) break;
+        }
+        toast("Plants organized by species in a military parade formation!🤣");
+        updateUI();
+    }
+
+    function organizeRocks() {
+        const rockCount = rocks.length;
+        const radius = groundRadius - 5;
+        for (let i = 0; i < rockCount; i++) {
+            const angle = (i / rockCount) * Math.PI * 2;
+            const x = Math.cos(angle) * radius;
+            const z = Math.sin(angle) * radius;
+            rocks[i].mesh.position.set(x, 0.4, z);
+        }
+    }
+
+    function adminLogin() {
+        const pwd = document.getElementById('admin-password').value;
+        if (pwd === 'mango77') {
+            adminLoggedIn = true;
+            document.getElementById('admin-login').style.display = 'none';
+            document.getElementById('admin-terminal').style.display = 'flex';
+            document.getElementById('admin-error').innerText = '';
+            document.getElementById('admin-output').innerHTML = '<div style="color:#0f0;">Access granted. Type /help for commands.</div>';
+        } else {
+            document.getElementById('admin-error').innerText = 'Wrong password!';
+        }
+    }
+
+    function adminExecute() {
+        if (!adminLoggedIn) return;
+        const cmd = document.getElementById('admin-command').value.trim();
+        const output = document.getElementById('admin-output');
+        let msg = '';
+
+        if (cmd === '/money') {
+            money += 100000;
+            msg = 'Added $100,000.';
+        } else if (cmd.startsWith('/weather ')) {
+            const w = cmd.split(' ')[1].toLowerCase();
+            if (w === 'sun' || w === 'clear') {
+                weather = 'clear'; rainSystem.visible = false; snowSystem.visible = false;
+                msg = 'Weather set to clear.';
+            } else if (w === 'rain') {
+                weather = 'rain'; rainSystem.visible = true; snowSystem.visible = false;
+                msg = 'Weather set to rain.';
+            } else if (w === 'snow') {
+                weather = 'snow'; rainSystem.visible = false; snowSystem.visible = true;
+                msg = 'Weather set to snow.';
+            } else {
+                msg = 'Unknown weather type. Use: sun, rain, snow.';
+            }
+        } else if (cmd.startsWith('/time ')) {
+            const hour = parseInt(cmd.split(' ')[1]);
+            if (isNaN(hour) || hour < 0 || hour > 23) {
+                msg = 'Invalid hour. Use 0-23.';
+            } else {
+                gameTime = hour;
+                msg = `Time set to ${hour}:00.`;
+            }
+        } else if (cmd.startsWith('/season ')) {
+            const season = cmd.split(' ')[1].toLowerCase();
+            if (season === 'spring') {
+                weather = 'clear'; rainSystem.visible = false; snowSystem.visible = false;
+                currentDate.month = 3; currentDate.day = 20;
+                msg = 'Season set to Spring.';
+            } else if (season === 'summer') {
+                weather = 'clear'; rainSystem.visible = false; snowSystem.visible = false;
+                currentDate.month = 6; currentDate.day = 21;
+                msg = 'Season set to Summer.';
+            } else if (season === 'autumn') {
+                weather = 'rain'; rainSystem.visible = true; snowSystem.visible = false;
+                currentDate.month = 9; currentDate.day = 22;
+                msg = 'Season set to Autumn.';
+            } else if (season === 'winter') {
+                weather = 'snow'; rainSystem.visible = false; snowSystem.visible = true;
+                currentDate.month = 12; currentDate.day = 21;
+                msg = 'Season set to Winter.';
+            } else {
+                msg = 'Unknown season. Use: spring, summer, autumn, winter.';
+            }
+        } else if (cmd.startsWith('/date ')) {
+            const parts = cmd.split(' ');
+            if (parts.length < 3) {
+                msg = 'Use: /date month day (e.g., /date 12 25)';
+            } else {
+                const month = parseInt(parts[1]);
+                const day = parseInt(parts[2]);
+                if (isNaN(month) || month < 1 || month > 12 || isNaN(day) || day < 1 || day > daysInMonth(currentDate.year, month)) {
+                    msg = `Invalid date. Month 1-12, day 1-${daysInMonth(currentDate.year, month)}.`;
+                } else {
+                    currentDate.month = month;
+                    currentDate.day = day;
+                    msg = `Date set to ${month}/${day}.`;
+                }
+            }
+        } else if (cmd === '/help') {
+            msg = 'Commands: /money, /weather [sun|rain|snow], /time [0-23], /season [spring|summer|autumn|winter], /date [month] [day]';
+        } else {
+            msg = 'Unknown command. Type /help.';
+        }
+
+        output.innerHTML += `<div style="color:#0f0;">> ${cmd}</div><div style="color:#aaa;">${msg}</div>`;
+        document.getElementById('admin-command').value = '';
+        updateUI();
+    }
+    // ---------- INITIALIZATION ----------
+    function init() {
+      init3D();
+      clock = new THREE.Clock();
+      document.getElementById('home-menu').style.display = 'flex';
+      animate();
+    }
+
+    function init3D() {
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x87CEEB);
+      scene.fog = new THREE.Fog(0x87CEEB, 50, 120);
+      raycaster.params.Points.threshold = 0.5;   // for point clouds, not needed
+      camera = new THREE.PerspectiveCamera(50, window.innerWidth/window.innerHeight, 0.5, 200);
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+      updateGroundGeometry();
+      createFountain();
+      spawnInitialTrees();
+      spawnRocks(8);
+      organizeRocks();
+      spawnInitialAnimals();
+
+      sun = new THREE.DirectionalLight(0xfff5e6, 1.2);
+      sun.position.set(30, 50, 20);
+      sun.castShadow = true;
+      sun.shadow.mapSize.width = 1024;
+      sun.shadow.mapSize.height = 1024;
+      scene.add(sun);
+
+      moon = new THREE.DirectionalLight(0xaaccff, 0.5);
+      moon.position.set(-30, 50, -20);
+      moon.castShadow = true;
+      scene.add(moon);
+
+      ambient = new THREE.AmbientLight(0x404066, 0.7);
+      scene.add(ambient);
+
+      createWeatherParticles();
+      updateCameraPosition();
+
+      window.addEventListener('resize', onResize);
+      window.addEventListener('wheel', (e) => {
+        if (e.target.closest('.panel')) return;   // ignore scrolls inside any panel
+        changeZoom(e.deltaY * 0.03);
+      });
+      window.addEventListener('mousedown', onMouseDown);
+      window.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('mouseup', onMouseUp);
+      window.addEventListener('contextmenu', e => e.preventDefault());
+
+      // Start music on first user interaction
+      document.addEventListener('click', startMusicOnInteraction, { once: true });
+    }
+
+    function startMusicOnInteraction() {
+      if (!musicPlaying) {
+        gameMusic.play().catch(() => {});
+        musicPlaying = true;
+      }
+    }
+
+    function toggleMusic() {
+      if (gameMusic.paused) {
+        gameMusic.play().then(() => { musicPlaying = true; });
+        toast("Music ON");
+      } else {
+        gameMusic.pause();
+        musicPlaying = false;
+        toast("Music OFF");
+      }
+    }
+
+    function updateGroundGeometry() {
+      if (ground) scene.remove(ground);
+      ground = new THREE.Mesh(
+        new THREE.CylinderGeometry(groundRadius, groundRadius-4, 5, 64),
+        new THREE.MeshStandardMaterial({ color: 0x4a7c3f, roughness: 0.9 })
+      );
+      ground.position.y = -2.5;
+      ground.receiveShadow = true;
+      ground.castShadow = true;
+      scene.add(ground);
+    }
+
+    // ---------- ENVIRONMENT ----------
+    function createFountain() {
+      fountainGroup = new THREE.Group();
+      const base = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 2, 0.8, 16), new THREE.MeshStandardMaterial({color:0x95a5a6}));
+      base.position.y=0.4; base.castShadow=true; base.receiveShadow=true;
+      const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.35,0.35,2.2), new THREE.MeshStandardMaterial({color:0x7f8c8d}));
+      pillar.position.y=1.8; pillar.castShadow=true;
+      const top = new THREE.Mesh(new THREE.CylinderGeometry(1.0,1.3,0.5,16), new THREE.MeshStandardMaterial({color:0x95a5a6}));
+      top.position.y=3.1; top.castShadow=true;
+      fountainGroup.add(base); fountainGroup.add(pillar); fountainGroup.add(top);
+      scene.add(fountainGroup);
+
+      const pCount = 500;
+      const pos = new Float32Array(pCount*3);
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(pos,3));
+      const mat = new THREE.PointsMaterial({color:0x88ccff, size:0.15, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false});
+      fountainPoints = new THREE.Points(geo, mat);
+      scene.add(fountainPoints);
+      for(let i=0;i<pCount;i++) {
+        const p = { x:0, y:2.8, z:0, vx:0, vy:0, vz:0, life:0 };
+        resetFountainParticle(p);
+        fountainParticles.push(p);
+        pos[i*3]=p.x; pos[i*3+1]=p.y; pos[i*3+2]=p.z;
+      }
+      // Campfire (hidden)
+      campfireGroup = new THREE.Group();
+      const logs = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.3, 0.3, 1.2, 6),
+        new THREE.MeshStandardMaterial({ color: 0x8B4513 })
+      );
+      logs.position.y = 0.6;
+      campfireGroup.add(logs);
+      const stones = new THREE.Mesh(
+        new THREE.TorusGeometry(1.2, 0.15, 8, 16),
+        new THREE.MeshStandardMaterial({ color: 0x808080, roughness: 0.8 })
+      );
+      stones.rotation.x = Math.PI / 2;
+      stones.position.y = 0.4;
+      campfireGroup.add(stones);
+      campfireGroup.visible = false;
+      scene.add(campfireGroup);
+
+      // Fire particles (reuse same buffer but different material)
+      const fireParticlesGeo = new THREE.BufferGeometry();
+      fireParticlesGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(500 * 3), 3));
+      const fireMat = new THREE.PointsMaterial({
+        color: 0xff6600,
+        size: 0.3,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      });
+      firePoints = new THREE.Points(fireParticlesGeo, fireMat);
+      firePoints.visible = false;
+      scene.add(firePoints);
+
+    }
+    function getSpeciesName(type) {
+      const names = {
+          'Scaposa': 'Tillandsia Scaposa',
+          'Bulbosa': 'Tillandsia Bulbosa',
+          'Mexca':   'Tillandsia Mexca',
+          'Stricta': 'Tillandsia Stricta',
+          'Xero':    'Tillandsia Xerographica',
+          'Snowball': 'Tillandsia ionantha \'Snowball\'',
+          'Fuego': 'Tillandsia ionantha \'Fuego\'',
+          'Fuchsii': 'Tillandsia fuchsii v.',
+          'Hybrid':  'Hybrid'
+      };
+      return names[type] || type;
+  }
+    function resetFountainParticle(p) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = isFireMode ? 0.8 + Math.random() * 1.5 : 1.2 + Math.random() * 2.5;
+      p.x = 0;
+      p.y = isFireMode ? 0.3 : 2.8;
+      p.z = 0;
+      p.vx = Math.cos(angle) * speed;
+      p.vz = Math.sin(angle) * speed;
+      p.vy = isFireMode ? 2.0 + Math.random() * 3.0 : 3.0 + Math.random() * 2.5;
+      p.life = isFireMode ? 0.5 + Math.random() * 0.8 : 1.0 + Math.random() * 0.8;
+    }
+
+    function spawnInitialTrees() {
+        const types = ['walnut','apple','mango'];
+        const treeCount = 8;
+        const radius = groundRadius - 6;   // just inside the island edge
+        for (let i = 0; i < treeCount; i++) {
+            const angle = (i / treeCount) * Math.PI * 2;
+            const x = Math.cos(angle) * radius;
+            const z = Math.sin(angle) * radius;
+            const type = types[Math.floor(Math.random() * 3)];
+            createTree(type, x, z);
+        }
+    }
+
+    function createTree(type, x, z) {
+      const group = new THREE.Group();
+      group.userData = { type: 'tree' };
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.7,3.8), new THREE.MeshStandardMaterial({color:0x5d4037}));
+      trunk.position.y=1.9; trunk.castShadow=true; trunk.receiveShadow=true;
+      group.add(trunk);
+        // trees.push({ 
+        //     id: Date.now() + Math.random(),   // <-- add this line
+        //     mesh:group, type, fruitCount:3, fruitMeshes:fruitGroup.children, x, z, chopped:false 
+        //     });
+      let leafColor, fruitColor, fruitGeo;
+      if(type==='walnut'){ leafColor=0x2e5a1e; fruitColor=0x5d4037; fruitGeo=new THREE.SphereGeometry(0.35, 8); }
+      else if(type==='apple'){ leafColor=0x4caf50; fruitColor=0xe74c3c; fruitGeo=new THREE.SphereGeometry(0.4, 8); }
+      else { leafColor=0x388e3c; fruitColor=0xf1c40f; fruitGeo=new THREE.SphereGeometry(0.45,8); fruitGeo.scale(1,1.3,1); }
+
+      const canopy = new THREE.Group();
+      for(let i=0;i<8;i++){
+        const leaf = new THREE.Mesh(new THREE.SphereGeometry(1.4,6), new THREE.MeshStandardMaterial({color:leafColor}));
+        leaf.position.set((Math.random()-0.5)*3.0, 3.8+Math.random()*1.2, (Math.random()-0.5)*3.0);
+        leaf.castShadow=true; leaf.receiveShadow=true;
+        canopy.add(leaf);
+      }
+      group.add(canopy);
+
+      const fruitGroup = new THREE.Group();
+      for(let i=0;i<3;i++){
+        const f = new THREE.Mesh(fruitGeo, new THREE.MeshStandardMaterial({color:fruitColor, emissive: fruitColor, emissiveIntensity: 0.3}));
+        f.position.set((Math.random()-0.5)*2.5, 3.5+Math.random()*1.0, (Math.random()-0.5)*2.5);
+        f.castShadow=true;
+        fruitGroup.add(f);
+      }
+      group.add(fruitGroup);
+      group.position.set(x, 0, z);
+      scene.add(group);
+      trees.push({ 
+            id: Date.now() + Math.random(),
+            mesh: group, type, fruitCount: 3, fruitMeshes: fruitGroup.children, x, z, chopped: false 
+        });
+    }
+
+    function spawnRocks(count) {
+      for(let i=0;i<count;i++){
+        const angle = Math.random()*Math.PI*2;
+        const r = 7+Math.random()*(groundRadius-10);
+        const rock = new THREE.Mesh(
+          new THREE.DodecahedronGeometry(0.9+Math.random()*1.1),
+          new THREE.MeshStandardMaterial({color:0x7f8c8d, roughness:0.9})
+        );
+        rock.position.set(Math.cos(angle)*r, 0.4, Math.sin(angle)*r);
+        rock.castShadow=true; rock.receiveShadow=true;
+        rock.userData = { type: 'rock' };
+        scene.add(rock);
+        rocks.push({ mesh:rock, mined:false });
+      }
+    }
+
+    function spawnInitialAnimals() {
+      for(let i=0;i<3;i++) createAnimal('squirrel');
+      for(let i=0;i<3;i++) createAnimal('crow');
+      for(let i=0;i<2;i++) createAnimal('sheep');
+      createAnimal('cow');
+    }
+
+    function createAnimal(type) {
+      const mesh = createAnimalMesh(type);
+      const angle = Math.random()*Math.PI*2;
+      const r = 8+Math.random()*(groundRadius-12);
+      mesh.position.set(Math.cos(angle)*r, 0, Math.sin(angle)*r);
+      scene.add(mesh);
+      const animalObj = {
+        mesh, type, isFarmer:false,
+        hunger:80+Math.random()*20, thirst:80+Math.random()*20,
+        vx:(Math.random()-0.5)*1.2, vz:(Math.random()-0.5)*1.2,
+        flying: type==='crow', flyHeight: type==='crow'? 5+Math.random()*4 : 0,
+        target:null
+      };
+      animals.push(animalObj);
+      return animalObj;
+    }
+
+  function createAnimalMesh(type) {
+    const g = new THREE.Group();
+    if(type==='squirrel') {
+        // Rounded body
+        const body = new THREE.Mesh(
+            new THREE.SphereGeometry(0.35, 8, 8),
+            new THREE.MeshStandardMaterial({color:0xb5651d})
+        );
+        body.scale.set(1, 0.9, 1.3);
+        body.position.y = 0.4;
+        g.add(body);
+
+        // Head
+        const head = new THREE.Mesh(
+            new THREE.SphereGeometry(0.22, 8, 8),
+            new THREE.MeshStandardMaterial({color:0xb5651d})
+        );
+        head.position.set(0, 0.65, 0.5);
+        g.add(head);
+
+        // Bushy tail (curved cone)
+        const tail = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.05, 0.18, 0.9, 6),
+            new THREE.MeshStandardMaterial({color:0x8b4513})
+        );
+        tail.position.set(0, 0.5, -0.55);
+        tail.rotation.x = 0.6;
+        g.add(tail);
+
+        // Ears
+        const earGeo = new THREE.ConeGeometry(0.08, 0.2, 4);
+        const earMat = new THREE.MeshStandardMaterial({color:0xb5651d});
+        const earL = new THREE.Mesh(earGeo, earMat);
+        earL.position.set(-0.12, 0.8, 0.4);
+        earL.rotation.z = 0.3;
+        g.add(earL);
+        const earR = new THREE.Mesh(earGeo, earMat);
+        earR.position.set(0.12, 0.8, 0.4);
+        earR.rotation.z = -0.3;
+        g.add(earR);
+    } else if(type==='crow') {
+        g.add(new THREE.Mesh(new THREE.SphereGeometry(0.35), new THREE.MeshStandardMaterial({color:0x222})));
+        const beak = new THREE.Mesh(new THREE.ConeGeometry(0.12,0.3), new THREE.MeshStandardMaterial({color:0xffaa00}));
+        beak.position.set(0,0.2,0.4); g.add(beak);
+        const wingL = new THREE.Mesh(new THREE.BoxGeometry(0.15,0.1,0.6), new THREE.MeshStandardMaterial({color:0x111}));
+        wingL.position.set(-0.3,0.1,0); g.add(wingL);
+        const wingR = wingL.clone();
+        wingR.position.set(0.3,0.1,0); g.add(wingR);
+      } else if(type==='sheep') {
+        g.add(new THREE.Mesh(new THREE.SphereGeometry(0.8), new THREE.MeshStandardMaterial({color:0xffffff, roughness:0.8})));
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.35), new THREE.MeshStandardMaterial({color:0x444}));
+        head.position.set(0,0.9,0.7); g.add(head);
+      } else if(type==='cow') {
+        g.add(new THREE.Mesh(new THREE.BoxGeometry(1.2,0.8,1.8), new THREE.MeshStandardMaterial({color:0xffffff})));
+        const head = new THREE.Mesh(new THREE.BoxGeometry(0.6,0.5,0.6), new THREE.MeshStandardMaterial({color:0xffffff}));
+        head.position.set(0,1.2,0.8); g.add(head);
+      }else if(type==='pig') {
+        // Plump pink body
+        const body = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.45, 0.45, 0.9, 8),
+            new THREE.MeshStandardMaterial({color:0xffb6c1, roughness:0.7})
+        );
+        body.position.y = 0.55;
+        g.add(body);
+
+        // Head
+        const head = new THREE.Mesh(
+            new THREE.SphereGeometry(0.32, 8, 8),
+            new THREE.MeshStandardMaterial({color:0xffb6c1, roughness:0.7})
+        );
+        head.position.set(0, 0.85, 0.7);
+        g.add(head);
+
+        // Snout (short cylinder)
+        const snout = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.15, 0.12, 0.2, 6),
+            new THREE.MeshStandardMaterial({color:0xff9aa2, roughness:0.7})
+        );
+        snout.position.set(0, 0.78, 0.95);
+        snout.rotation.x = 0.2;
+        g.add(snout);
+
+        // Nostrils (tiny spheres)
+        const nostrilGeo = new THREE.SphereGeometry(0.04, 4);
+        const nostrilMat = new THREE.MeshStandardMaterial({color:0x8b3a3a});
+        const nostrilL = new THREE.Mesh(nostrilGeo, nostrilMat);
+        nostrilL.position.set(-0.08, 0.82, 1.02);
+        g.add(nostrilL);
+        const nostrilR = new THREE.Mesh(nostrilGeo, nostrilMat);
+        nostrilR.position.set(0.08, 0.82, 1.02);
+        g.add(nostrilR);
+
+        // Ears (triangles)
+        const earGeo = new THREE.ConeGeometry(0.12, 0.2, 4);
+        const earMat = new THREE.MeshStandardMaterial({color:0xffb6c1, roughness:0.7});
+        const earL = new THREE.Mesh(earGeo, earMat);
+        earL.position.set(-0.2, 1.05, 0.5);
+        earL.rotation.z = 0.4;
+        g.add(earL);
+        const earR = new THREE.Mesh(earGeo, earMat);
+        earR.position.set(0.2, 1.05, 0.5);
+        earR.rotation.z = -0.4;
+        g.add(earR);
+
+        // Legs (short cylinders)
+        const legGeo = new THREE.CylinderGeometry(0.1, 0.1, 0.4, 6);
+        const legMat = new THREE.MeshStandardMaterial({color:0xffb6c1, roughness:0.7});
+        const legPositions = [
+            [-0.25, 0.2, -0.4], [0.25, 0.2, -0.4],
+            [-0.25, 0.2, 0.4],  [0.25, 0.2, 0.4]
+        ];
+        legPositions.forEach(pos => {
+            const leg = new THREE.Mesh(legGeo, legMat);
+            leg.position.set(pos[0], pos[1], pos[2]);
+            g.add(leg);
+        });
+
+        // Curly tail
+        const tailCurve = new THREE.CatmullRomCurve3([
+            new THREE.Vector3(0, 0.4, -0.6),
+            new THREE.Vector3(0.2, 0.6, -0.7),
+            new THREE.Vector3(0.1, 0.7, -0.5),
+            new THREE.Vector3(-0.1, 0.6, -0.4),
+            new THREE.Vector3(-0.15, 0.7, -0.5)
+        ]);
+        const tailGeo = new THREE.TubeGeometry(tailCurve, 8, 0.05, 4, false);
+        const tail = new THREE.Mesh(tailGeo, new THREE.MeshStandardMaterial({color:0xffb6c1, roughness:0.7}));
+        g.add(tail);
+    }
+      g.userData = { type: 'animal' };
+      return g;
+    }
+
+    function createWeatherParticles() {
+      let geo = new THREE.BufferGeometry();
+      let pos = new Float32Array(1500*3);
+      for(let i=0;i<1500;i++){ pos[i*3]=(Math.random()-0.5)*80; pos[i*3+1]=Math.random()*40; pos[i*3+2]=(Math.random()-0.5)*80; }
+      geo.setAttribute('position', new THREE.BufferAttribute(pos,3));
+      rainSystem = new THREE.Points(geo, new THREE.PointsMaterial({color:0x3498db, size:0.2, transparent:true, opacity:0.6}));
+      rainSystem.visible=false; scene.add(rainSystem);
+      geo = new THREE.BufferGeometry();
+      pos = new Float32Array(1500*3);
+      for(let i=0;i<1500;i++){ pos[i*3]=(Math.random()-0.5)*80; pos[i*3+1]=Math.random()*40; pos[i*3+2]=(Math.random()-0.5)*80; }
+      geo.setAttribute('position', new THREE.BufferAttribute(pos,3));
+      snowSystem = new THREE.Points(geo, new THREE.PointsMaterial({color:0xffffff, size:0.3, transparent:true, opacity:0.8}));
+      snowSystem.visible=false; scene.add(snowSystem);
+    }
+
+    // ---------- GAME LOOP ----------
+    setInterval(() => {
+      if (!gameLoaded) return;
+      gameTime = (gameTime + 0.2) % 24;
+      const currentHour = Math.floor(gameTime);
+      if (prevHour === 23 && currentHour === 0) {
+        // new day
+        advanceDate();
+      }
+      prevHour = currentHour;
+      const isNight = gameTime > 19 || gameTime < 6;
+      document.body.style.background = isNight ? "#0a0a2a" : (weather==='rain'?"#57606f":(weather==='snow'?"#dfe6e9":"#87CEEB"));
+      scene.background = new THREE.Color(isNight ? '#0a0a2a' : (weather==='rain'?'#57606f':'#87CEEB'));
+      sun.intensity = isNight ? 0.05 : 1.2;
+      moon.intensity = isNight ? 1.0 : 0.1;
+      document.getElementById('clock-display').innerText = `${isNight?'🌙':'☀️'} ${Math.floor(gameTime)}:00`;
+      if(Math.random()<0.003) changeWeather();
+
+      incomeAccum += 0.05;
+      if(incomeAccum >= 2) {
+        incomeAccum -= 2;
+        const alive = garden.filter(p=>!p.dead).length;
+        money += alive * 5;
+      }
+
+      animals.forEach(a => {
+        a.hunger -= 0.4; a.thirst -= 0.6;
+        if(a.hunger<=0 || a.thirst<=0) { scene.remove(a.mesh); animals = animals.filter(x=>x!==a); return; }
+        if(a.hunger<40 && !a.target) {
+          const nearbyTrees = trees.filter(t=>!t.chopped && t.fruitCount>0);
+          if(nearbyTrees.length > 0) {
+            nearbyTrees.sort((t1, t2) => {
+              const d1 = Math.hypot(a.mesh.position.x - t1.x, a.mesh.position.z - t1.z);
+              const d2 = Math.hypot(a.mesh.position.x - t2.x, a.mesh.position.z - t2.z);
+              return d1 - d2;
+            });
+            a.target = nearbyTrees[0];
+          }
+        }
+        if(a.thirst<40 && !a.target) a.target = 'fountain';
+      });
+
+      garden.forEach(p => {
+        if(p.dead) return;
+        p.age++;
+        // Grow from tiny pup to full size
+        const targetScale = p.maxScale || 1.8;
+        const startScale = p.startScale || 1.8;   // use the plant's stored starting scale
+        // Faster growth when young, slow down after 70
+        let growSpeed;
+        if (p.age < 60) {
+            growSpeed = 0.030;          // fast growth
+        } else if (p.age < 70) {
+            // transition
+            growSpeed = 0.023;
+        } else {
+            growSpeed = 0.017;          // ~30‑40% slower than original 0.013
+        }
+        const scale = Math.min(targetScale, startScale + p.age * growSpeed);
+        p.mesh.scale.setScalar(scale);
+        // If this plant is an attached pup, follow the parent
+        if (p.attachedTo && p.age < 20) {
+            const parentWorldPos = new THREE.Vector3();
+            p.attachedTo.mesh.getWorldPosition(parentWorldPos);
+            const target = parentWorldPos.clone().add(p.attachOffset);
+            target.y = 0;  // keep on ground
+            p.mesh.position.copy(target);
+        }
+        let decay = 0.5;
+        if(p.rot>20) decay=3;
+        if(weather==='rain'){ p.health+=0.5; if(p.health>100)p.rot+=0.2; }
+        if(weather==='snow') decay=0;
+        p.health -= decay;
+        if(p.rot>0) p.rot-=0.5;
+        if(p.health>50) p.growth+=4;
+        if(p.growth>=100){ p.growth=0; p.leaves++; addLeaf(p); }
+
+        if(p.age>=60 && !p.bloomed){
+            p.bloomed=true;
+            p.bloomAge = p.age;   // remember the age at which it bloomed
+            p.bloomRealTime = Date.now();
+            toast(`${p.name} is blooming!`);
+            const col = p.bloomColor || SPECIES[p.type]?.b || 0xffffff;
+            p.bloomColor = col;
+            p.mesh.children.forEach((c,i)=>{ if(i>p.mesh.children.length*0.6) c.material.color.setHex(col); });
+
+            if(p.type === 'Xero') {
+                // Xero bloom spike with many triangular bracts
+                const spikeGroup = new THREE.Group();
+
+                const stalk = new THREE.Mesh(
+                    new THREE.CylinderGeometry(0.04, 0.06, 1.5, 8),
+                    new THREE.MeshStandardMaterial({color: 0x556b2f, roughness: 0.7})
+                );
+                stalk.position.y = 0.75;
+                spikeGroup.add(stalk);
+
+                const bractCount = 24;                     // increase for more flowers
+                const bractGeo = new THREE.ConeGeometry(0.12, 0.3, 3); // 3 sides = triangle
+                for (let i = 0; i < bractCount; i++) {
+                    const t = i / (bractCount - 1);
+                    const color = new THREE.Color().lerpColors(
+                        new THREE.Color(0xff1493),  // deep pink
+                        new THREE.Color(0xffd700),  // gold
+                        t
+                    );
+                    const bract = new THREE.Mesh(
+                        bractGeo,
+                        new THREE.MeshStandardMaterial({color: color, emissive: color, emissiveIntensity: 0.5})
+                    );
+                    bract.position.y = 0.2 + t * 1.3;
+                    bract.position.x = Math.sin(t * Math.PI * 8) * 0.2;
+                    bract.position.z = Math.cos(t * Math.PI * 8) * 0.2;
+                    bract.rotation.y = Math.random() * Math.PI * 2;   // random spin
+                    spikeGroup.add(bract);
+                }
+
+                spikeGroup.position.y = 0;
+                p.mesh.add(spikeGroup);
+                p.bloomGroup = spikeGroup;
+              } else if(p.type === 'Snowball') {
+                  // Snowball bloom: inner leaves already blushed red.
+                  // A single violet flower stalk with gold pollen emerges from the centre.
+                  const flowerGroup = new THREE.Group();
+
+                  // Violet stalk
+                  const stalk = new THREE.Mesh(
+                      new THREE.CylinderGeometry(0.04, 0.04, 0.9, 6),
+                      new THREE.MeshStandardMaterial({color: 0x8a2be2, emissive: 0x4b0082, emissiveIntensity: 0.5})
+                  );
+                  stalk.position.y = 0.45;
+                  flowerGroup.add(stalk);
+
+                  // Gold pollen tip
+                  const gold = new THREE.Mesh(
+                      new THREE.SphereGeometry(0.08, 6),
+                      new THREE.MeshStandardMaterial({color: 0xffd700, emissive: 0xffd700, emissiveIntensity: 0.7})
+                  );
+                  gold.position.y = 0.95;
+                  flowerGroup.add(gold);
+
+                  flowerGroup.position.y = 0;
+                  p.mesh.add(flowerGroup);
+                  p.bloomGroup = flowerGroup;   // keep reference to remove later
+              } else if(p.type === 'Fuchsii') {
+                  // Fuchsii bloom: very long, slender hot-pink spike with violet flowers
+                  const spikeGroup = new THREE.Group();
+
+                  // Extra‑long, thin stalk (hot pink)
+                  const stalk = new THREE.Mesh(
+                      new THREE.CylinderGeometry(0.03, 0.04, 4.0, 8),
+                      new THREE.MeshStandardMaterial({color: 0xff69b4, roughness: 0.5})
+                  );
+                  stalk.position.y = 2.0;
+                  spikeGroup.add(stalk);
+
+                  // Small violet flowers along the upper part of the stalk
+                  const flowerCount = 8;
+                  for (let i = 0; i < flowerCount; i++) {
+                      const t = i / (flowerCount - 1);
+                      const y = 2.5 + t * 1.5;
+                      const violetFlower = new THREE.Mesh(
+                          new THREE.CylinderGeometry(0.04, 0.04, 0.5, 6),
+                          new THREE.MeshStandardMaterial({color: 0x8a2be2, emissive: 0x4b0082, emissiveIntensity: 0.5})
+                      );
+                      violetFlower.position.set(Math.sin(t * Math.PI * 4) * 0.15, y, Math.cos(t * Math.PI * 4) * 0.15);
+                      violetFlower.rotation.z = 0.2;
+                      spikeGroup.add(violetFlower);
+                  }
+
+                  spikeGroup.position.y = 0;
+                  p.mesh.add(spikeGroup);
+                  p.bloomGroup = spikeGroup;
+              
+              } else if(p.type === 'Fuego') {
+                  // Fuego bloom: all leaves turn fiery red, one violet flower with gold tip emerges.
+                  const flowerGroup = new THREE.Group();
+
+                  // Violet stalk
+                  const stalk = new THREE.Mesh(
+                      new THREE.CylinderGeometry(0.04, 0.04, 0.8, 6),
+                      new THREE.MeshStandardMaterial({color: 0x8a2be2, emissive: 0x4b0082, emissiveIntensity: 0.5})
+                  );
+                  stalk.position.y = 0.4;
+                  flowerGroup.add(stalk);
+
+                  // Gold pollen tip
+                  const gold = new THREE.Mesh(
+                      new THREE.SphereGeometry(0.07, 6),
+                      new THREE.MeshStandardMaterial({color: 0xffd700, emissive: 0xffd700, emissiveIntensity: 0.7})
+                  );
+                  gold.position.y = 0.85;
+                  flowerGroup.add(gold);
+
+                  flowerGroup.position.y = 0;
+                  p.mesh.add(flowerGroup);
+                  p.bloomGroup = flowerGroup;
+              }else {
+                // Default spike for other species
+                const spike = new THREE.Mesh(new THREE.ConeGeometry(0.1,1.5,5), new THREE.MeshStandardMaterial({color:0x8e44ad,emissive:0x8e44ad}));
+                spike.position.y=1; p.mesh.add(spike);
+                p.bloomGroup = spike;
+            }
+            // Detach pup from parent when it turns 20
+          if (p.attachedTo && p.age >= 20) {
+              // Convert local position to world position
+              const worldPos = new THREE.Vector3();
+              p.mesh.getWorldPosition(worldPos);
+              p.mesh.position.copy(worldPos);
+              scene.add(p.mesh);          // move to scene root
+              p.attachedTo = null;
+          }
+        }
+        // Stalk fall after 2 in‑game days (≈ 16 real minutes = 960000 ms)
+        if (p.bloomed && !p.stalkFallen && p.age >= p.bloomAge + 15) {
+            // Remove the bloom geometry
+            if (p.bloomGroup) p.mesh.remove(p.bloomGroup);
+            p.stalkFallen = true;
+            toast(`${p.name}'s flower stalk fell off!`);
+
+          // Create 1‑3 (10% chance 3‑8) pups
+          const pupCount = Math.random() < 0.000005 ? 3 + Math.floor(Math.random() * 6) : (Math.random() < 0.01 ? 2 : 1);
+          for (let i = 0; i < pupCount; i++) {
+              const angle = Math.random() * Math.PI * 2;
+              const dist = 1.5;
+              const offsetX = Math.cos(angle) * dist;
+              const offsetZ = Math.sin(angle) * dist;
+              const pup = addPlant(p.type, p.gen + 1, `${p.name} Jr`, true, p.baseColor, p.leafGeoType, p.bloomColor);
+              if (pup) {
+                  // Place pup at the parent’s current world position + offset
+                  const parentWorldPos = new THREE.Vector3();
+                  p.mesh.getWorldPosition(parentWorldPos);
+                  pup.mesh.position.set(parentWorldPos.x + offsetX, 0, parentWorldPos.z + offsetZ);
+                  // Store the offset relative to the parent’s world position
+                  pup.attachOffset = new THREE.Vector3(offsetX, 0, offsetZ);
+                  pup.attachedTo = p;   // mark as attached
+              }
+          }
+        }
+        if(p.age===120) addPlant(p.type, p.gen+1, p.name+" Jr", true, p.baseColor);
+        if(p.age>300 || p.health<=0){ p.dead=true; p.mesh.children.forEach(c=>c.material.color.setHex(0x636e72)); }
+      });
+      updateUI();
+    }, 1000);
+    
+        function daysInMonth(year, month) {
+      return new Date(year, month, 0).getDate(); // month is 1-based
+    }
+
+    function advanceDate() {
+      currentDate.day++;
+      if (currentDate.day > daysInMonth(currentDate.year, currentDate.month)) {
+        currentDate.day = 1;
+        currentDate.month++;
+        if (currentDate.month > 12) {
+          currentDate.month = 1;
+          currentDate.year++;
+        }
+      }
+      // check Christmas
+      const wasChristmas = isChristmas;
+      isChristmas = (currentDate.month === 12 && currentDate.day === 25);
+      if (isChristmas && !wasChristmas) {
+        startChristmas();
+      } else if (!isChristmas && wasChristmas) {
+        endChristmas();
+      }
+      updateUI();
+    }
+
+    function startChristmas() {
+      // gift (only once per year)
+      if (currentDate.year > christmasGiftYear) {
+        christmasGiftYear = currentDate.year;
+        money += 100;
+        toast("🎅 Santa brought you $100 and a random Tillandsia!");
+        const speciesList = ['Scaposa','Bulbosa','Mexca','Stricta','Xero','Snowball','Fuchsii','Fuego'];
+        const randomType = speciesList[Math.floor(Math.random() * speciesList.length)];
+        addPlant(randomType, 1, "Santa's Gift");
+      }
+      // transform to campfire
+      if (campfireGroup) campfireGroup.visible = true;
+      if (firePoints) {
+        firePoints.visible = true;
+        firePoints.material.color.set(0xff6600);
+      }
+      fountainGroup.visible = false;
+      fountainPoints.visible = false;
+      isFireMode = true;
+      // reset all particles for fire mode
+      for (let i = 0; i < fountainParticles.length; i++) {
+        resetFountainParticle(fountainParticles[i]);
+      }
+    }
+
+    function endChristmas() {
+      // revert to fountain
+      if (campfireGroup) campfireGroup.visible = false;
+      if (firePoints) firePoints.visible = false;
+      fountainGroup.visible = true;
+      fountainPoints.visible = true;
+      isFireMode = false;
+    }
+
+    function changeWeather() {
+      const r=Math.random();
+      if(r<0.15){ weather='rain'; rainSystem.visible=true; snowSystem.visible=false; }
+      else if(r<0.2){ weather='snow'; rainSystem.visible=false; snowSystem.visible=true; }
+      else { weather='clear'; rainSystem.visible=false; snowSystem.visible=false; }
+    }
+
+    // ---------- ANIMATION ----------
+    function animate() {
+      requestAnimationFrame(animate);
+      const dt = Math.max(0.016, Math.min(clock.getDelta(), 0.1));
+
+      animals.forEach(a => {
+        if(a.flying) {
+          a.flyHeight += Math.sin(Date.now()*0.003 + a.mesh.position.x) * 0.02;
+          a.mesh.position.y = a.flyHeight;
+        }
+        let moveX = a.vx, moveZ = a.vz;
+        if(a.flying && Math.random()<0.02) {
+          a.vx = (Math.random()-0.5)*2.0;
+          a.vz = (Math.random()-0.5)*2.0;
+        } else if(!a.flying && Math.random()<0.01) {
+          a.vx = (Math.random()-0.5)*1.5;
+          a.vz = (Math.random()-0.5)*1.5;
+        }
+        animals.forEach(b => {
+          if(a===b) return;
+          const dx = a.mesh.position.x - b.mesh.position.x;
+          const dz = a.mesh.position.z - b.mesh.position.z;
+          const d = Math.hypot(dx, dz);
+          if(d<2.5 && d>0) { moveX += dx/d * 0.3; moveZ += dz/d * 0.3; }
+        });
+        trees.forEach(t => {
+          const dx = a.mesh.position.x - t.x, dz = a.mesh.position.z - t.z;
+          const d = Math.hypot(dx, dz);
+          if(d<3 && d>0) { moveX += dx/d * 0.5; moveZ += dz/d * 0.5; }
+        });
+        const fd = Math.hypot(a.mesh.position.x, a.mesh.position.z);
+        if(fd > groundRadius-3) { moveX -= a.mesh.position.x/fd*0.8; moveZ -= a.mesh.position.z/fd*0.8; }
+        if(fd < 5) { moveX += a.mesh.position.x/fd*0.3; moveZ += a.mesh.position.z/fd*0.3; }
+        a.mesh.position.x += moveX * dt;
+        a.mesh.position.z += moveZ * dt;
+        if(a.flying) {
+          a.mesh.position.y = a.flyHeight;
+          a.mesh.rotation.y = Math.atan2(moveZ, moveX);
+        }
+      });
+
+      if (fountainPoints) {
+        const posArr = fountainPoints.geometry.attributes.position.array;
+        for (let i = 0; i < fountainParticles.length; i++) {
+          const p = fountainParticles[i];
+          p.x += p.vx * dt;
+          p.y += p.vy * dt;
+          p.z += p.vz * dt;
+          if (isFireMode) {
+            p.vy -= 2.0 * dt; // slower gravity
+            if (p.y < 0.3 || p.life <= 0) resetFountainParticle(p);
+          } else {
+            p.vy -= 9.8 * dt;
+            if (p.y < 2.0 || p.life <= 0) resetFountainParticle(p);
+          }
+          p.life -= dt;
+          posArr[i * 3] = p.x;
+          posArr[i * 3 + 1] = p.y;
+          posArr[i * 3 + 2] = p.z;
+        }
+        fountainPoints.geometry.attributes.position.needsUpdate = true;
+        // If fire mode, also copy to firePoints
+        if (isFireMode && firePoints) {
+          const firePosArr = firePoints.geometry.attributes.position.array;
+          for (let i = 0; i < fountainParticles.length; i++) {
+            firePosArr[i * 3] = posArr[i * 3];
+            firePosArr[i * 3 + 1] = posArr[i * 3 + 1];
+            firePosArr[i * 3 + 2] = posArr[i * 3 + 2];
+          }
+          firePoints.geometry.attributes.position.needsUpdate = true;
+        }
+      }
+
+      if(rainSystem) rainSystem.rotation.y += 0.002;
+      if(snowSystem) snowSystem.rotation.y += 0.002;
+      updateCameraPosition();
+      renderer.render(scene, camera);
+    }
+
+    function updateCameraPosition() {
+      zoomLevel += (targetZoom - zoomLevel) * 0.1;
+      const radius = Math.sqrt(Math.pow(8 + zoomLevel * 0.5, 2) + Math.pow(zoomLevel, 2));
+      const elevation = Math.asin((8 + zoomLevel * 0.5) / radius);
+      const x = cameraTarget.x + radius * Math.cos(elevation) * Math.sin(cameraAngle);
+      const y = cameraTarget.y + radius * Math.sin(elevation);
+      const z = cameraTarget.z + radius * Math.cos(elevation) * Math.cos(cameraAngle);
+      camera.position.set(x, y, z);
+      camera.lookAt(cameraTarget);
+    }
+
+    // ---------- INTERACTION ----------
+    function onMouseDown(e) {
+      if (e.target.tagName !== 'CANVAS') return;
+      mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+      raycaster.setFromCamera(mouse, camera);
+      const intersects = raycaster.intersectObjects(scene.children, true);
+      if (intersects.length > 0) {
+        let obj = intersects[0].object;
+        while (obj && !obj.userData.type) obj = obj.parent;
+        if (obj && obj.userData.type) {
+          contextTarget = obj;
+          showContextMenu(e.clientX, e.clientY, obj.userData.type, obj);
+          return;
+        } else {
+          contextTarget = null;
+          hideContextMenu();
+        }
+      } else {
+        contextTarget = null;
+        hideContextMenu();
+      }
+      // Left‑click on empty space → start map drag
+      if (e.button === 0) {
+        isDraggingMap = true;
+        lastMouse.set(e.clientX, e.clientY);
+      }
+    }
+
+    function onMouseMove(e) {
+      if (selectedPlant) {
+        mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+        mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+        raycaster.setFromCamera(mouse, camera);
+        const target = new THREE.Vector3();
+        if (raycaster.ray.intersectPlane(dragPlane, target)) {
+          selectedPlant.mesh.position.copy(target);
+        }
+        return;
+      }
+      if (isDraggingMap) {
+        const deltaX = e.clientX - lastMouse.x;
+        const deltaY = e.clientY - lastMouse.y;
+        const sensitivity = 0.3;
+        if (e.ctrlKey) {
+          // Rotate around target
+          cameraAngle -= deltaX * 0.005;
+        } else {
+          // Pan the camera target
+          const forward = new THREE.Vector3();
+          camera.getWorldDirection(forward);
+          forward.y = 0;
+          forward.normalize();
+          const right = new THREE.Vector3();
+          right.crossVectors(forward, new THREE.Vector3(0,1,0)).normalize();
+          cameraTarget.x -= (deltaX * right.x + deltaY * forward.x) * sensitivity;
+          cameraTarget.z -= (deltaX * right.z + deltaY * forward.z) * sensitivity;
+        }
+        lastMouse.set(e.clientX, e.clientY);
+      }
+    }
+    function onMouseUp() {
+      selectedPlant = null;
+      isDraggingMap = false;
+    }
+
+    function showContextMenu(x, y, type, obj) {
+      const menu = document.getElementById('context-menu');
+      menu.innerHTML = '';
+      if(type==='plant') {
+          const p = garden.find(g=>g.mesh===obj);
+          if(!p) return;
+          menu.innerHTML = `
+            <div style="text-align:center; padding:4px; font-weight:bold; font-size:1.1em; border-bottom:1px solid rgba(255,255,255,0.2);">${p.name}</div>
+            <div style="font-size:0.8em; opacity:0.8; margin-bottom:6px; text-align:center;">Age: ${p.age} · ${getSpeciesName(p.type)}</div>
+            <button onclick="feedPlant(${p.id})">💧 Water</button>
+            <button onclick="movePlantMode(${p.id})">✋ Move</button>
+            <button onclick="sellPlant(${p.id})">💰 Sell</button>
+            ${p.bloomed ? `<button onclick="harvest(${p.id})">🌰 Harvest</button>` : ''}
+          `;
+      } else if(type==='tree') {
+            const tree = trees.find(t=>t.mesh===obj && !t.chopped);
+            if(!tree) return;
+            menu.innerHTML = `
+                <button onclick="chopTree(${tree.id})">🪓 Chop (Wood + Fruit)</button>
+                ${tree.fruitCount > 0 ? `<button onclick="pickFruits(${tree.id})">🍎 Pick Fruits (${tree.fruitCount})</button>` : ''}
+            `;
+        } else if(type==='rock') {
+            const rock = rocks.find(r=>r.mesh===obj);
+            if(!rock) return;
+            menu.innerHTML = `<button onclick="mineRock('${rock.mesh.uuid}')">⛏️ Mine</button>`;
+        } else if(type==='animal') {
+        const animal = animals.find(a=>a.mesh===obj);
+        if(!animal) return;
+        menu.innerHTML = `
+          <button onclick="feedAnimal('${animal.mesh.uuid}')">🍎 Feed ($10)</button>
+          ${animal.isFarmer ? `<button onclick="payFarmer('${animal.mesh.uuid}')">💵 Pay ($50)</button>` : ''}
+          <button onclick="sellAnimal('${animal.mesh.uuid}')">💰 Sell</button>
+        `;
+      }
+      menu.style.left = x+'px';
+      menu.style.top = y+'px';
+      menu.style.display = 'flex';
+    }
+
+    function hideContextMenu() {
+      document.getElementById('context-menu').style.display = 'none';
+    }
+
+    function movePlantMode(id) {
+      const p = garden.find(g=>g.id===id);
+      if(p) { selectedPlant = p; hideContextMenu(); toast("Drag plant to new location"); }
+    }
+
+    function feedPlant(id) { mist(id); hideContextMenu(); }
+    function sellPlant(id) { sell(id); hideContextMenu(); }
+    function feedAnimal(meshId) {
+      if(money<10) return;
+      const a = animals.find(a=>a.mesh.uuid===meshId);
+      if(a){ a.hunger=100; money-=10; toast("Fed animal"); }
+      hideContextMenu();
+    }
+    function payFarmer(meshId) {
+      if(money<50) return;
+      const a = animals.find(a=>a.mesh.uuid===meshId);
+      if(a && a.isFarmer){ money-=50; toast("Paid farmer"); }
+      hideContextMenu();
+    }
+    function sellAnimal(meshId) {
+      const idx = animals.findIndex(a=>a.mesh.uuid===meshId);
+      if(idx>=0){ scene.remove(animals[idx].mesh); money+=30; animals.splice(idx,1); }
+      hideContextMenu();
+    }
+function chopTree(id) {
+  const tree = trees.find(t => t.id === id && !t.chopped);
+  if (!tree) return;
+  resources.wood += 3;
+  resources.fruit += tree.fruitCount;
+  tree.chopped = true;
+  tree.mesh.userData.chopped = true;   // so raycaster can ignore it
+  tree.mesh.visible = false;
+  setTimeout(() => {
+    tree.chopped = false;
+    tree.mesh.visible = true;
+    tree.fruitCount = 3;
+    tree.fruitMeshes.forEach(m => m.visible = true);
+  }, 45000);
+  toast("Tree chopped! +3 wood, +fruit");
+  hideContextMenu();
+}
+
+function pickFruits(id) {
+  const tree = trees.find(t => t.id === id && !t.chopped && t.fruitCount > 0);
+  if (!tree) return;
+  const count = tree.fruitCount;
+  resources.fruit += count;
+  tree.fruitCount = 0;
+  tree.fruitMeshes.forEach(m => m.visible = false);
+  toast(`Picked ${count} fruits!`);
+  setTimeout(() => {
+    if (!tree.chopped) {
+      tree.fruitCount = 3;
+      tree.fruitMeshes.forEach(m => m.visible = true);
+    }
+  }, 30000);
+  hideContextMenu();
+}
+    function mineRock(meshId) {
+      const rock = rocks.find(r=>r.mesh.uuid===meshId && !r.mined);
+      if(!rock) return;
+      rock.mined = true;
+      scene.remove(rock.mesh);
+      const rand = Math.random();
+      if(rand < 0.05) {
+        resources.diamond++;
+        toast("🌟 Congrats! You found a Diamond!");
+      } else if(rand < 0.2) {
+        resources.gold++;
+        toast("✨ Congrats! You found Gold!");
+      } else {
+        money += 10;
+        resources.stone += 1;
+        toast("+$10 and some stone");
+      }
+      hideContextMenu();
+    }
+
+    // ---------- UI HELPERS ----------
+    function toast(msg) {
+      const t = document.getElementById('toast');
+      t.innerText = msg; t.classList.add('show');
+      setTimeout(()=>t.classList.remove('show'), 2000);
+    }
+    function changeZoom(d) { targetZoom = Math.max(12, Math.min(70, targetZoom+d)); }
+    function onResize() { camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); }
+
+    // ---------- GAME ACTIONS ----------
+    let gameLoaded = false;
+    function startGame(type) {
+      // Start music
+      if (gameMusic.paused) {
+        gameMusic.play().then(() => {
+          musicPlaying = true;
+        }).catch(err => {
+          console.warn('Autoplay prevented, click the music button');
+        });
+      }
+
+      document.getElementById('home-menu').style.display = 'none';
+      document.getElementById('game-ui').style.display = 'flex';
+      garden.forEach(p=>scene.remove(p.mesh)); garden=[];
+      animals.forEach(a=>scene.remove(a.mesh)); animals=[];
+      trees.forEach(t=>scene.remove(t.mesh)); trees=[];
+      rocks.forEach(r=>scene.remove(r.mesh)); rocks=[];
+      
+      money=50; compost=0; gameTime=12; prevHour = Math.floor(gameTime);resources={wood:0,stone:0,fruit:0,gold:0,diamond:0};
+      addPlant(type,1,"Alpha Beta");
+      spawnInitialTrees(); spawnRocks(8); spawnInitialAnimals();
+      gameLoaded=true; updateUI();
+    }
+
+    function addPlant(type, gen, name, isPup=false, col=null, leafGeoType=null, bloomColor=null) {
+      const s = SPECIES[type]||{c:0xaaaaaa};
+      const color = col||s.c;
+      const group = new THREE.Group();
+      group.userData = { type:'plant' };
+      let leafCount = s.xero ? 40 : (s.snowball ? 60 : (s.fuchsii ? 50 : (s.fuego ? 35 : 6)));
+      let p = { 
+        id:Date.now()+Math.random(), type, gen, name, health:100, rot:0, age:0, 
+        leaves:leafCount, growth:0, dead:false, bloomed:false, stalkFallen:false, 
+        bloomGroup:null, bloomAge:0, bloomRealTime:null, attachedTo:null, 
+        mesh:group, baseColor:color,
+        leafGeoType: leafGeoType,       // stored for hybrid leaf shape
+        bloomColor: bloomColor          // stored for hybrid bloom colour
+      };
+      for(let i=0;i<p.leaves;i++) addLeaf(p);
+      // ... rest of the placement code (unchanged) ...
+      // Keep trying until the position is outside the fountain
+      let attempts = 0;
+      do {
+          p.mesh.position.set((Math.random()*20)-10, 0, (Math.random()*14)-7);
+          attempts++;
+      } while (p.mesh.position.length() < FOUNTAIN_RADIUS && attempts < 50);
+      let startScale = isPup ? 0.5 : 1.8;
+      if (s.fuchsii) { startScale = isPup ? 0.5 : 1.4; }
+      if (s.fuego)   { startScale = isPup ? 0.4 : 1.2; }
+      p.mesh.scale.setScalar(startScale);
+      p.startScale = startScale;
+      let maxScale = 1.8;
+      if (s.fuchsii) maxScale = 1.5;
+      if (s.fuego)   maxScale = 1.3;
+      p.maxScale = maxScale;
+      scene.add(p.mesh);
+      garden.push(p);
+      updateUI();
+      return p;
+    }
+
+    function addLeaf(p) {
+      const shapeType = p.leafGeoType || p.type;   // use inherited shape if hybrid
+
+      if (shapeType === 'Xero') {
+          const leafMesh = createXeroLeaf();
+          leafMesh.material = new THREE.MeshStandardMaterial({
+              color: '#8fbc8f',
+              roughness: 0.2, metalness: 0.2,
+              emissive: 0x7bab89, emissiveIntensity: 0.3
+          });
+          p.mesh.add(leafMesh);
+          return;
+      }
+
+      if (shapeType === 'Snowball') {
+          const geo = new THREE.ConeGeometry(0.15, 3.0, 7);
+          const mat = new THREE.MeshStandardMaterial({
+              color: 0xd0f0d0, roughness: 0.4, metalness: 0.1,
+              emissive: 0x112211, emissiveIntensity: 0.2
+          });
+          const leaf = new THREE.Mesh(geo, mat);
+          leaf.position.y = 0.5;
+          leaf.rotation.set(Math.random() * 0.5 + 0.2, Math.random() * Math.PI * 2, Math.random() * 0.2);
+          p.mesh.add(leaf);
+          return;
+      }
+
+      if (shapeType === 'Fuchsii') {
+          const geo = new THREE.CylinderGeometry(0.02, 0.02, 1.8, 4);
+          const mat = new THREE.MeshStandardMaterial({
+              color: 0xc0e0c0, roughness: 0.5, metalness: 0.0,
+              emissive: 0x111111, emissiveIntensity: 0.1
+          });
+          const leaf = new THREE.Mesh(geo, mat);
+          leaf.rotation.set(Math.random()*Math.PI*2, Math.random()*Math.PI*2, Math.random()*Math.PI*2);
+          leaf.position.set(0, 0, 0);
+          p.mesh.add(leaf);
+          return;
+      }
+
+      if (shapeType === 'Fuego') {
+          const geo = new THREE.ConeGeometry(0.12, 2.0, 6);
+          const mat = new THREE.MeshStandardMaterial({
+              color: 0x3c781c, roughness: 0.4, metalness: 0.1,
+              emissive: 0x112211, emissiveIntensity: 0.2
+          });
+          const leaf = new THREE.Mesh(geo, mat);
+          leaf.position.y = 0.4;
+          leaf.rotation.set(
+              (Math.random() * 0.4) + 0.1,
+              Math.random() * Math.PI * 2,
+              0
+          );
+          p.mesh.add(leaf);
+          return;
+      }
+
+      // Standard leaf (used for Scaposa, Bulbosa, Mexca, Stricta, and fallback)
+      let geo = new THREE.ConeGeometry(0.15, 3.0, 7);
+      let mat = new THREE.MeshStandardMaterial({ color: p.baseColor, roughness: 0.6 });
+      const leaf = new THREE.Mesh(geo, mat);
+      leaf.position.y = 0.5;
+      leaf.rotation.set(Math.random() * 0.5 + 0.2, Math.random() * Math.PI * 2, Math.random() * 0.2);
+      p.mesh.add(leaf);
+    }
+
+    function createXeroLeaf() {
+        const curve = new THREE.CatmullRomCurve3([
+            new THREE.Vector3(0, 0, 0),
+            new THREE.Vector3(0.2, 0.4, 0.15),
+            new THREE.Vector3(0.5, 0.7, 0.2),
+            new THREE.Vector3(0.8, 0.5, 0.0),
+            new THREE.Vector3(0.9, 0.1, -0.2),
+            new THREE.Vector3(0.7, -0.3, -0.4),
+            new THREE.Vector3(0.3, -0.5, -0.4)
+        ]);
+
+        const segments = 64;
+        const radiusStart = 0.15;   // thick at base
+        const radiusEnd = 0.02;     // fine point
+
+        // Build a custom tube with varying radius
+        const frames = curve.computeFrenetFrames(segments, false);
+        const vertices = [];
+        const normals = [];
+        const uvs = [];
+        const indices = [];
+
+        const radialSegments = 8;   // cross‑section detail
+
+        for (let i = 0; i <= segments; i++) {
+            const t = i / segments;
+            const radius = radiusStart + (radiusEnd - radiusStart) * t;
+            const P = curve.getPointAt(t);
+            const N = frames.normals[i];
+            const B = frames.binormals[i];
+
+            for (let j = 0; j <= radialSegments; j++) {
+                const angle = (j / radialSegments) * Math.PI * 2;
+                const sin = Math.sin(angle);
+                const cos = Math.cos(angle);
+
+                const x = P.x + radius * (cos * N.x + sin * B.x);
+                const y = P.y + radius * (cos * N.y + sin * B.y);
+                const z = P.z + radius * (cos * N.z + sin * B.z);
+
+                vertices.push(x, y, z);
+                normals.push(cos * N.x + sin * B.x, cos * N.y + sin * B.y, cos * N.z + sin * B.z);
+                uvs.push(t, j / radialSegments);
+            }
+        }
+
+        for (let i = 0; i < segments; i++) {
+            for (let j = 0; j < radialSegments; j++) {
+                const a = i * (radialSegments + 1) + j;
+                const b = a + radialSegments + 1;
+                const c = a + 1;
+                const d = b + 1;
+
+                indices.push(a, b, c);
+                indices.push(b, d, c);
+            }
+        }
+
+        const geometry = new THREE.BufferGeometry();
+        geometry.setIndex(indices);
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+        geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+        geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+
+        const mesh = new THREE.Mesh(geometry);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        mesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI * 2, 0);
+        mesh.scale.set(0.7, 0.7, 0.7);
+        return mesh;
+    }
+    function mist(id){ const p=garden.find(x=>x.id===id); if(p.health>=100)p.rot+=15; p.health=Math.min(100,p.health+20); updateUI(); }
+    function trimRot(id){ const p=garden.find(x=>x.id===id); if(p){ p.rot=0; p.health-=5; toast("Trimmed!"); updateUI(); } }
+    function compostPlant(id){ const idx=garden.findIndex(x=>x.id===id); if(idx>=0){ scene.remove(garden[idx].mesh); garden.splice(idx,1); compost++; toast("Composted"); updateUI(); } }
+    function waterAll(){ 
+        garden.forEach(p=>{ if(!p.dead) p.health = 100; }); 
+        
+        toast("All plants fully watered!"); 
+        updateUI(); 
+    }
+    function compostAll(){ let c=0; garden=garden.filter(p=>{if(p.dead){scene.remove(p.mesh);c++;compost++;return false;}return true;}); toast(`Composted ${c}`); updateUI(); }
+    function buyItem(i){
+      if(i==='pig'&&money>=150){ money-=150; createAnimal('pig'); }
+      else if(i==='farmer'&&money>=500){ money-=500; const a=createAnimal('pig'); a.isFarmer=true; const hat=new THREE.Mesh(new THREE.ConeGeometry(0.5,0.2),new THREE.MeshStandardMaterial({color:0xe67e22})); hat.position.set(0,1.1,0.8); a.mesh.add(hat); }
+      else if(i==='Stricta'&&money>=120){ money-=120; addPlant('Stricta',1,'Stricta'); }
+      else if(i==='Xero'&&money>=800){ money-=800; addPlant('Xero',1,'Queen'); }
+      else if(i==='Snowball' && money>=500){ money-=500; addPlant('Snowball',1,'Rare Snow'); }
+      else if(i==='Fuchsii' && money>=400){ money-=400; addPlant('Fuchsii',1,'Fuchsii'); }
+      else if(i==='Fuego' && money>=250){ money-=250; addPlant('Fuego',1,'Fuego'); }
+      updateUI();
+    }
+    function harvest(id){ const p=garden.find(x=>x.id===id); if(!p.bloomed)return; inventory.push({type:p.type, color:p.baseColor}); p.health-=20; toast("Harvested"); updateUI(); }
+    function plantSeed(i){ const s=inventory[i]; addPlant(s.type,1,"Seedling",true,s.color); inventory.splice(i,1); updateUI(); }
+    function sellSeed(i){ inventory.splice(i,1); money+=30; updateUI(); }
+    function sell(id){ const i=garden.findIndex(x=>x.id===id); money+=garden[i].dead?10:50; scene.remove(garden[i].mesh); garden.splice(i,1); updateUI(); }
+    function addToVault(id){ if(money<200)return; money-=200; const p=garden.find(x=>x.id===id); vault.push({type:p.type, color:p.baseColor, name:p.name}); updateUI(); }
+    function regrow(i){ if(money<100)return; money-=100; addPlant(vault[i].type,1,vault[i].name,false,vault[i].color); closeMenus(); }
+    function breed(){
+      if (!breedSlots[0] || !breedSlots[1] || money < 300) return;
+      if (!breedSlots[0].bloomed || !breedSlots[1].bloomed) {
+        toast("🌸 Both plants must be blooming to create a hybrid!");
+        return;
+      }
+      money -= 300;
+
+      // leaf shape from first parent
+      const leafGeo = breedSlots[0].leafGeoType || breedSlots[0].type;
+      // bloom colour from second parent
+      const bloomCol = breedSlots[1].bloomColor || SPECIES[breedSlots[1].type]?.b || 0xffffff;
+      // leaf colour is mixed
+      const mixedBase = new THREE.Color(breedSlots[0].baseColor).lerp(new THREE.Color(breedSlots[1].baseColor), 0.5);
+
+      addPlant("Hybrid", 1, "Hybrid", false, mixedBase.getHex(), leafGeo, bloomCol);
+      breedSlots = [null, null];
+      closeMenus();
+    }
+
+    function selectBreed(id) {
+      const p = garden.find(x => x.id === id);
+      if (!p.bloomed) {
+        toast("🌱 This plant isn't blooming yet! Wait for its flower.");
+        return;
+      }
+      if (!breedSlots[0]) {
+        breedSlots[0] = p;
+        document.getElementById('p1-txt').innerText = p.name;
+      } else {
+        breedSlots[1] = p;
+        document.getElementById('p2-txt').innerText = p.name;
+      }
+    }
+    function activateGlow(){ garden.forEach(p=>{ p.health=100; p.rot=0; if(p.bloomed&&!p.glow){ const l=new THREE.PointLight(0x00f2fe,2,8); p.mesh.add(l); p.glow=l; } }); compost=0; document.getElementById('glow-btn').style.display='none'; updateUI(); }
+    function buyLand(){ if(money>=2000){ money-=2000; groundRadius+=8; updateGroundGeometry(); toast("Land expanded!"); updateUI(); } }
+    function sellResource(type){ if(resources[type]>0){ const prices={wood:15,stone:8,fruit:10,gold:200,diamond:400}; money+=prices[type]; resources[type]--; updateUI(); } }
+
+    function updateUI(){
+      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      document.getElementById('date-display').innerText = `📅 ${months[currentDate.month-1]} ${currentDate.day}`;
+      document.getElementById('money-display').innerText=money;
+      document.getElementById('compost-display').innerText=compost+'/3';
+      document.getElementById('glow-btn').style.display=compost>=3?'block':'none';
+      document.getElementById('land-size').innerText=groundRadius+'m';
+      document.getElementById('total-plants').innerText = `Total plants: ${garden.length}`;
+      // Resource inventory panel
+      const resList = document.getElementById('resource-list');
+      resList.innerHTML = '';
+      const resEntries = [
+        { key: 'wood', icon: '🪵', name: 'Wood' },
+        { key: 'stone', icon: '🪨', name: 'Stone' },
+        { key: 'fruit', icon: '🍎', name: 'Fruit' },
+        { key: 'gold', icon: '🪙', name: 'Gold' },
+        { key: 'diamond', icon: '💎', name: 'Diamond' }
+      ];
+      resEntries.forEach(r => {
+        const count = resources[r.key] || 0;
+        if (count > 0 || r.key === 'wood' || r.key === 'stone') {  // always show wood & stone
+          const span = document.createElement('span');
+          span.innerHTML = `${r.icon} ${r.name}: <b>${count}</b>`;
+          resList.appendChild(span);
+        }
+      });
+      // Count unique species
+      const speciesSet = new Set(garden.map(p => p.type));
+      const organizeBtn = document.getElementById('organize-btn');
+      if (speciesSet.size <= 2) {
+          organizeBtn.disabled = true;
+          organizeBtn.style.opacity = '0.5';
+          organizeBtn.style.cursor = 'not-allowed';
+      } else {
+          organizeBtn.disabled = false;
+          organizeBtn.style.opacity = '1';
+          organizeBtn.style.cursor = 'pointer';
+      }
+      const list=document.getElementById('plant-list'); list.innerHTML='';
+      garden.forEach(p=>{
+        const div=document.createElement('div'); div.className='plant-card';
+        div.innerHTML=`<span class="gen-tag">Gen ${p.gen}</span>
+          <span style="font-weight:bold; cursor:pointer;" onclick="openRenameModal(${p.id})" title="Click to rename">${p.name} ✎</span>
+          <div style="font-size:0.8em; opacity:0.9; margin-top:2px;">Age: ${p.age}</div>
+          <div style="font-size:0.75em; opacity:0.8; margin-top:1px;">${getSpeciesName(p.type)}</div>
+          <div class="bar-bg"><div class="bar-fill fill-blue" style="width:${p.growth}%"></div></div>
+          <div class="bar-bg"><div class="bar-fill ${p.rot>10?'fill-red':'fill-green'}" style="width:${p.health}%"></div></div>
+          <div style="display:flex; gap:4px; margin-top:5px;">
+            ${p.dead ? `<span style="background:#c0392b; color:white; padding:2px 8px; border-radius:8px; font-size:0.7em; margin-bottom:4px; display:inline-block;">💀 Dead</span>` : ''}
+            <div style="display:flex; gap:4px; margin-top:5px;">
+              ${p.dead?`<button class="btn btn-trim btn-small" onclick="compostPlant(${p.id})">♻️</button>`:`
+              <button class="btn btn-mist btn-small" onclick="mist(${p.id})">💧</button>
+              ${p.rot>0?`<button class="btn btn-trim btn-small" onclick="trimRot(${p.id})">✂️</button>`:''}
+              <button class="btn btn-harvest btn-small" onclick="harvest(${p.id})">🌰</button>
+              <button class="btn btn-lab btn-small" onclick="selectBreed(${p.id})">🧬</button>
+            `}
+            <button class="btn btn-sell btn-small" onclick="sell(${p.id})">💰</button>
+          </div>`;
+        list.appendChild(div);
+      });
+      const iList=document.getElementById('inv-list'); iList.innerHTML='';
+      inventory.forEach((s,i)=>iList.innerHTML+=`<div class="inv-item"><b>${s.type}</b><div><button class="btn btn-sell btn-small" onclick="sellSeed(${i})">$30</button><button class="btn btn-mist btn-small" onclick="plantSeed(${i})">Plant</button></div></div>`);
+      const vList=document.getElementById('vault-list'); vList.innerHTML='';
+      vault.forEach((v,i)=>vList.innerHTML+=`<div class="inv-item">${v.name}<button class="btn btn-mist btn-small" onclick="regrow(${i})">$100</button></div>`);
+    }
+    function renamePlant(id, newName){ const p=garden.find(x=>x.id===id); if(p)p.name=newName; }
+    let renamePlantId = null;
+
+    function openRenameModal(id) {
+        const plant = garden.find(p => p.id === id);
+        if (!plant) return;
+        renamePlantId = id;
+        document.getElementById('rename-input').value = plant.name;
+        document.getElementById('rename-modal').style.display = 'flex';
+        setTimeout(() => document.getElementById('rename-input').focus(), 100);
+    }
+
+    function closeRenameModal() {
+        document.getElementById('rename-modal').style.display = 'none';
+        renamePlantId = null;
+    }
+
+    function confirmRename() {
+        const newName = document.getElementById('rename-input').value.trim();
+        if (newName && renamePlantId !== null) {
+            renamePlant(renamePlantId, newName);
+            updateUI(); // refresh the garden log
+        }
+        closeRenameModal();
+    }
+
+    // ---------- SAVE CODE ----------
+    function getGameState() {
+      return {
+        money, gameTime, compost, groundRadius, resources, currentDate, christmasGiftYear, isChristmas, isFireMode,
+        garden: garden.map(p=>({type:p.type,gen:p.gen,name:p.name,health:p.health,rot:p.rot,age:p.age,leaves:p.leaves,growth:p.growth,dead:p.dead,bloomed:p.bloomed, baseColor:p.baseColor, leafGeoType: p.leafGeoType, bloomColor: p.bloomColor, pos:[p.mesh.position.x, p.mesh.position.z] })),
+        trees: trees.filter(t=>!t.chopped).map(t=>({type:t.type,x:t.x,z:t.z,fruitCount:t.fruitCount})),
+        animals: animals.map(a=>({type:a.type,isFarmer:a.isFarmer,x:a.mesh.position.x,z:a.mesh.position.z,hunger:a.hunger,thirst:a.thirst})),
+        inventory, vault
+      };
+    }
+    function restoreGameState(state) {
+      money=state.money; gameTime=state.gameTime; compost=state.compost; groundRadius=state.groundRadius;
+      resources=state.resources; inventory=state.inventory; vault=state.vault;
+      garden.forEach(p=>scene.remove(p.mesh)); garden=[];
+      trees.forEach(t=>scene.remove(t.mesh)); trees=[];
+      animals.forEach(a=>scene.remove(a.mesh)); animals=[];
+      rocks.forEach(r=>scene.remove(r.mesh)); rocks=[];
+      if (state.currentDate) currentDate = state.currentDate;
+      if (state.christmasGiftYear) christmasGiftYear = state.christmasGiftYear;
+      isChristmas = state.isChristmas || false;
+      isFireMode = state.isFireMode || false;
+
+      // re-apply Christmas visuals if needed
+      if (isChristmas) {
+        startChristmas(); // but careful not to give gift again – check for year already handled inside startChristmas
+      } else {
+        endChristmas();
+      }
+      updateGroundGeometry();
+      state.garden.forEach(d=>{ 
+        addPlant(d.type, d.gen, d.name, false, d.baseColor, d.leafGeoType, d.bloomColor); 
+        const p = garden[garden.length-1]; 
+        p.mesh.position.set(d.pos[0],0,d.pos[1]); 
+      });
+      state.trees.forEach(t=>createTree(t.type,t.x,t.z));
+      state.animals.forEach(d=>{ createAnimal(d.type); const a=animals[animals.length-1]; a.mesh.position.set(d.x,0,d.z); a.hunger=d.hunger; a.thirst=d.thirst; if(d.isFarmer){ a.isFarmer=true; const hat=new THREE.Mesh(new THREE.ConeGeometry(0.5,0.2),new THREE.MeshStandardMaterial({color:0xe67e22})); hat.position.set(0,1.1,0.8); a.mesh.add(hat); } });
+      spawnRocks(8);
+      gameLoaded=true; updateUI();
+    }
+    function encryptState(state) { return btoa(JSON.stringify(state)); }
+    function decryptState(code) { return JSON.parse(atob(code)); }
+    function openSaveCodeModal() {
+      const code=encryptState(getGameState());
+      document.getElementById('save-code-text').value=code;
+      document.getElementById('save-code-modal').style.display='flex';
+    }
+    function closeSaveCodeModal() { document.getElementById('save-code-modal').style.display='none'; }
+    function copySaveCode() { navigator.clipboard.writeText(document.getElementById('save-code-text').value); toast('Code copied!'); }
+    function downloadSaveFile() { const blob=new Blob([document.getElementById('save-code-text').value],{type:'text/plain'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='ionantha_save.txt'; a.click(); }
+    function importSaveCode() {
+      const code=document.getElementById('load-code-text').value.trim();
+      try{ const state=decryptState(code); restoreGameState(state); closeSaveCodeModal(); document.getElementById('home-menu').style.display='none'; document.getElementById('game-ui').style.display='flex'; toast('World restored!'); }
+      catch(e){ toast('Invalid save code'); }
+    }
+    function saveGame() { localStorage.setItem('ionantha_v26', JSON.stringify(getGameState())); toast('Saved locally'); }
+    function loadGame() {
+      const data=localStorage.getItem('ionantha_v26');
+      if(data){ restoreGameState(JSON.parse(data)); document.getElementById('home-menu').style.display='none'; document.getElementById('game-ui').style.display='flex'; toast('Loaded'); }
+      else toast('No local save');
+    }
+    let currentUser = 'guest';
+
+    function openMenu(id) { document.getElementById(id).style.display='flex'; updateUI(); }
+    function closeMenus() { document.querySelectorAll('.overlay').forEach(o=>o.style.display='none'); }
+
+    init();
+  </script>
+    <!-- ADMIN CONSOLE (moved here) -->
+  <div id="admin-console" class="overlay">
+    <div class="modal-panel" style="width:400px;">
+        <h2>🛠️ Admin Console</h2>
+        <div id="admin-login" style="display:flex; flex-direction:column; gap:10px;">
+        <input type="password" id="admin-password" placeholder="Password" style="padding:8px; border-radius:6px; background:rgba(255,255,255,0.2); color:white; border:none;">
+        <button class="btn btn-mist" onclick="adminLogin()">Unlock</button>
+        <p id="admin-error" style="color:#e74c3c; font-size:0.8em;"></p>
+        </div>
+        <div id="admin-terminal" style="display:none; flex-direction:column; gap:10px; margin-top:10px;">
+        <div style="background:#111; border-radius:8px; padding:8px; font-family:monospace; color:#0f0; min-height:80px; max-height:200px; overflow-y:auto;" id="admin-output"></div>
+        <div style="display:flex; gap:8px;">
+            <input type="text" id="admin-command" placeholder="/money or /weather snow" style="flex:1; padding:8px; border-radius:6px; background:rgba(255,255,255,0.2); color:white; border:none;">
+            <button class="btn btn-market" onclick="adminExecute()">Run</button>
+        </div>
+        </div>
+        <button class="btn btn-save" style="width:100%; margin-top:12px;" onclick="document.getElementById('admin-console').style.display='none'">Close</button>
+    </div>
+  </div>
+  <!-- RENAME MODAL -->
+  <div id="rename-modal" class="overlay">
+    <div class="modal-panel" style="width:320px;">
+      <h2 style="margin-top:0;">✏️ Rename Plant</h2>
+      <input type="text" id="rename-input" placeholder="Enter new name..." 
+            style="width:100%; padding:10px; margin:10px 0; background:rgba(255,255,255,0.15); color:white; border:1px solid #555; border-radius:8px; outline:none;">
+      <div style="display:flex; gap:10px;">
+        <button class="btn btn-mist" style="flex:1;" onclick="confirmRename()">✓ Rename</button>
+        <button class="btn btn-save" style="flex:1;" onclick="closeRenameModal()">✖ Cancel</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
