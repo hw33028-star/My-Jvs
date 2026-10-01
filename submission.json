@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "books": [
+    {
+      "id": "my-first-book",
+      "title": "My First Book",
+      "author": "Jane Doe",
+      "description": "A short story about a tiny dragon.",
+      "cover": "https://example.com/cover.png",
+      "accent": "#2f8f6d",
+      "tags": ["fiction", "short"],
+      "layout": "horizontal",
+      "pages": [
+        {
+          "title": "Chapter One",
+          "text": "Hello **world**.",
+          "img": "https://example.com/page1.png",
+          "sidebar": "A margin note.",
+          "layout": "auto"
+        },
+        {
+          "title": "Chapter Two",
+          "text": "The end.",
+          "img": "",
+          "sidebar": ""
+        }
+      ],
+      "backCover": {
+        "img": "https://example.com/back.png",
+        "text": "Thanks for reading."
+      }
+    }
+  ]
+}
