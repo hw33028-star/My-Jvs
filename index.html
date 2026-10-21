@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Tiny GPT — Train · Save · Load · Generate</title>
+<title>Umm what is GPT</title>
 <style>
   :root{--bg:#0f1220;--panel:#1a1f35;--ink:#e8ecff;--dim:#8f9ac2;--acc:#6ea8fe;--line:#2b3355}
   *{box-sizing:border-box}
@@ -56,6 +56,9 @@
     <label>Steps <input id="steps" type="number" value="3000" min="100" step="100"></label>
     <label>Batch <input id="batch" type="number" value="4" min="1" max="16"></label>
     <label>Temp <input id="temp" type="range" min="0.1" max="1.5" step="0.05" value="0.7"><span id="tempv">0.70</span></label>
+  </div>
+  <div class="row" style="margin-top:-4px">
+    <span id="stepHint" style="color:var(--dim);font-size:11px;cursor:pointer" title="Click to use this value"></span>
   </div>
 
   <h2>Load a saved brain</h2>
@@ -1241,6 +1244,7 @@ dataEl.value = DEFAULT_CORPUS;
 let running = false, docs = [], step = 0, totalSteps = 0, opt = null;
 let losses = [], lo = Infinity, hi = 0;
 let trainedSteps = 0, savedLosses = [];
+let runStart = 0;
 
 function parseDocs(text){
   const lines = text.trim().split('\n').map(s=>s.trim()).filter(Boolean);
@@ -1323,6 +1327,7 @@ function startTraining(){
   running = true;
   trainBtn.disabled = true; stopBtn.disabled = false;
   genBtn.disabled = true; saveBtn.disabled = true;
+  runStart = performance.now();
   statusEl.textContent = (continuing ? 'Continuing training · ' : 'Training… ') + info;
   requestAnimationFrame(tick);
 }
@@ -1345,7 +1350,8 @@ function tick(){
     step++;
   }
   drawChart();
-  statusEl.textContent = `step ${step}/${totalSteps} · loss ${losses[losses.length-1].toFixed(3)} · params ${params.length}`;
+  const elapsedSec = (performance.now() - runStart) / 1000;
+  statusEl.textContent = `step ${step}/${totalSteps} · loss ${losses[losses.length-1].toFixed(3)} · ${fmtTime(elapsedSec)} · params ${params.length}`;
   if(running && step < totalSteps) requestAnimationFrame(tick);
   else finishTraining();
 }
@@ -1356,8 +1362,10 @@ function finishTraining(){
   trainBtn.disabled = false; stopBtn.disabled = true;
   genBtn.disabled = false; saveBtn.disabled = false;
   const last = losses.length ? losses[losses.length-1].toFixed(3) : '—';
-  statusEl.textContent = `done ✓ · total trained steps ${trainedSteps} · loss ${last}`;
+  const elapsedSec = (performance.now() - runStart) / 1000;
+  statusEl.textContent = `done ✓ · total trained steps ${trainedSteps} · loss ${last} · ${fmtTime(elapsedSec)} this run`;
   outEl.textContent = samples();
+  updateStepHint();
 }
 
 function samples(){
@@ -1366,13 +1374,56 @@ function samples(){
   return lines.length ? lines.join('\n') : '(no output — try more steps or higher temperature)';
 }
 
+function fmtTime(sec){
+  if(sec < 60) return sec.toFixed(1) + 's';
+  const m = Math.floor(sec/60);
+  const s = Math.round(sec - m*60);
+  return `${m}m ${s}s`;
+}
+
+function updateStepHint(){
+  const hint = $('stepHint');
+  if(!hint) return;
+  const lines = dataEl.value.trim().split('\n').map(s=>s.trim()).filter(Boolean);
+  const n = lines.length;
+  const batch = Math.max(1, parseInt($('batch').value)||4);
+  const continuing = !!sd;
+  if(n < 2){ hint.textContent = ''; return; }
+
+  let newWords = 0;
+  if(continuing && vocab){
+    const existing = new Set(vocab.itos);
+    for(const d of lines){
+      for(const w of tokenize(d).split(' ')){
+        if(w && !existing.has(w)){ existing.add(w); newWords++; }
+      }
+    }
+  }
+
+  const epochs = continuing ? 5 : 12;
+  let suggested = Math.round(n / batch * epochs);
+  suggested = Math.max(500, Math.min(10000, suggested));
+  suggested = Math.round(suggested / 100) * 100;
+
+  let msg = `💡 ~${suggested} steps suggested · ${n} lines · batch ${batch} · ${epochs} epochs · ${continuing?'continuing':'from scratch'}`;
+  if(continuing && newWords > 0) msg += ` · +${newWords} new words`;
+  hint.textContent = msg;
+  hint.onclick = () => { $('steps').value = suggested; };
+}
+
+dataEl.addEventListener('input', updateStepHint);
+$('batch').addEventListener('input', updateStepHint);
+updateStepHint();
+
 trainBtn.onclick = startTraining;
 stopBtn.onclick = ()=>{
   if(!running) return;
   running = false;
   trainBtn.disabled = false; stopBtn.disabled = true;
   genBtn.disabled = !sd; saveBtn.disabled = !sd;
-  statusEl.textContent += ' · stopped';
+  const elapsedSec = (performance.now() - runStart) / 1000;
+  statusEl.textContent += ` · stopped at ${fmtTime(elapsedSec)}`;
+  updateStepHint();
 };
 genBtn.onclick = ()=>{ outEl.textContent = samples(); };
 saveBtn.onclick = ()=>{ if(sd) exportModel(); };
@@ -1389,6 +1440,7 @@ $('loadUrl').onclick = async ()=>{
     const n = importBundle(bundle);
     statusEl.textContent = `Loaded ${n} params from URL. Ready to generate.`;
     genBtn.disabled = false; saveBtn.disabled = false;
+    updateStepHint();
   } catch(err){
     statusEl.textContent = 'Load failed: '+err.message+' — check that the URL is on GitHub Pages or jsDelivr (CORS).';
   }
@@ -1402,6 +1454,7 @@ $('file').addEventListener('change', async (e)=>{
     const n = importBundle(bundle);
     statusEl.textContent = `Loaded ${n} params from file. Ready to generate.`;
     genBtn.disabled = false; saveBtn.disabled = false;
+    updateStepHint();
   } catch(err){
     statusEl.textContent = 'Load failed: '+err.message;
   }
