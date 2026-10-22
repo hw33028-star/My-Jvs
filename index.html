@@ -359,907 +359,1317 @@ const $ = id => document.getElementById(id);
 const dataEl = $('data'), statusEl = $('status'), outEl = $('out'), chart = $('chart');
 const trainBtn = $('train'), stopBtn = $('stop'), genBtn = $('gen'), saveBtn = $('save');
 
-const DEFAULT_CORPUS = `the cat is cute .
-the cat is big .
-the cat is soft .
-the cat is small .
-the dog is big .
-the dog is kind .
-the dog is soft .
-the dog is fast .
-the bird is small .
-the bird is blue .
-the bird is pretty .
-the bird is loud .
-the fish is small .
-the fish is fast .
-the fish is quiet .
-the fish is big .
-the ball is red .
-the ball is round .
-the ball is new .
-the ball is big .
-the book is good .
-the book is new .
-the book is old .
-the book is short .
-the car is red .
-the car is fast .
-the car is new .
-the car is big .
-the bike is red .
-the bike is fast .
-the bike is small .
-the bike is new .
-the tree is green .
-the tree is tall .
-the tree is big .
-the tree is old .
-the flower is red .
-the flower is pretty .
-the flower is soft .
-the flower is small .
-the house is big .
-the house is new .
-the house is clean .
-the house is old .
-the room is big .
-the room is clean .
-the room is dark .
-the room is warm .
-the park is big .
-the park is green .
-the park is pretty .
-the park is quiet .
-the mat is red .
-the mat is big .
-the mat is soft .
-the mat is clean .
-the bed is big .
-the bed is warm .
-the bed is soft .
-the bed is clean .
-the chair is small .
-the chair is old .
-the chair is hard .
-the chair is new .
-the cup is small .
-the cup is red .
-the cup is new .
-the cup is clean .
-the hat is red .
-the hat is big .
-the hat is pretty .
-the hat is new .
-the shoe is small .
-the shoe is new .
-the shoe is old .
-the shoe is clean .
-the apple is red .
-the apple is good .
-the apple is big .
-the apple is sweet .
-the egg is small .
-the egg is new .
-the cake is good .
-the cake is warm .
-the cake is sweet .
-the cake is big .
-the bread is warm .
-the bread is good .
-the bread is soft .
-the milk is cold .
-the milk is warm .
-the water is cold .
-the water is warm .
-the water is clean .
-the sun is hot .
-the sun is bright .
-the sun is big .
-the moon is bright .
-the moon is full .
-the moon is small .
-the sky is blue .
-the sky is bright .
-the sky is big .
-the star is bright .
-the star is small .
-the sea is big .
-the sea is blue .
-the sea is deep .
-the garden is green .
-the garden is big .
-the garden is pretty .
-the street is long .
-the street is clean .
-the street is quiet .
-the beach is pretty .
-the beach is big .
-the beach is warm .
-the school is big .
-the school is new .
-the school is quiet .
-the store is big .
-the store is new .
-the store is full .
-the train is long .
-the train is fast .
-the bus is big .
-the bus is slow .
-the plane is fast .
-the plane is big .
-the boat is small .
-the phone is new .
-the phone is small .
-the watch is old .
-the watch is small .
-the tea is hot .
-the tea is good .
-the coffee is hot .
-the coffee is dark .
-the table is big .
-the table is clean .
-the door is big .
-the door is old .
-the window is big .
-the window is clean .
-the toy is new .
-the toy is soft .
-the doll is pretty .
-the doll is small .
-the box is big .
-the box is empty .
-the bag is new .
-the bag is small .
-the key is small .
-the key is old .
-the pen is new .
-the pen is blue .
-a cat is small .
-a cat is soft .
-a cat is big .
-a dog is big .
-a dog is kind .
-a dog is soft .
-a bird is small .
-a bird is pretty .
-a bird is blue .
-a fish is small .
-a fish is fast .
-a fish is quiet .
-a ball is round .
-a ball is new .
-a book is good .
-a book is new .
-a car is fast .
-a car is red .
-a bike is fast .
-a bike is new .
-a tree is tall .
-a tree is green .
-a flower is pretty .
-a flower is red .
-a house is big .
-a house is new .
-a room is warm .
-a room is clean .
-a mat is soft .
-a mat is big .
-a bed is warm .
-a bed is soft .
-a chair is hard .
-a chair is small .
-a cup is small .
-a cup is clean .
-a hat is red .
-a hat is new .
-a shoe is new .
-a shoe is small .
-an apple is good .
-an apple is red .
-an egg is small .
-an egg is new .
-a cake is sweet .
-a cake is good .
-a train is long .
-a train is fast .
-a bus is big .
-a bus is slow .
-a plane is fast .
-a boat is small .
-a phone is new .
-a phone is small .
-a star is bright .
-a star is small .
-the cat sits .
-the cat runs .
-the cat sleeps .
-the cat eats .
-the cat drinks .
-the dog sits .
-the dog runs .
-the dog sleeps .
-the dog eats .
-the dog drinks .
-the bird sings .
-the bird flies .
-the bird eats .
-the fish swims .
-the fish eats .
-the boy plays .
-the boy runs .
-the boy jumps .
-the boy smiles .
-the boy laughs .
-the boy reads .
-the boy eats .
-the girl plays .
-the girl runs .
-the girl jumps .
-the girl smiles .
-the girl laughs .
-the girl reads .
-the girl eats .
-the man walks .
-the man smiles .
-the man reads .
-the man eats .
-the man sits .
-the woman walks .
-the woman smiles .
-the woman reads .
-the woman sits .
-the baby sleeps .
-the baby cries .
-the baby smiles .
-the baby eats .
-the baby drinks .
-the cat sits on the mat .
-the cat sits on the bed .
-the cat sits on the chair .
-the cat sits on the floor .
-the cat sits on the table .
-the cat sleeps on the mat .
-the cat sleeps on the bed .
-the cat sleeps on the chair .
-the dog sits on the mat .
-the dog sits on the bed .
-the dog sits on the chair .
-the dog sits on the floor .
-the dog sleeps on the mat .
-the dog sleeps on the bed .
-the dog sleeps on the floor .
-the bird sits on the tree .
-the bird sits on the branch .
-the bird sits on the roof .
-the bird sings in the tree .
-the bird sings in the garden .
-the bird sings in the morning .
-the bird flies in the sky .
-the bird flies in the park .
-the bird flies in the garden .
-the fish swims in the water .
-the fish swims in the sea .
-the fish swims in the lake .
-the fish swims in the pond .
-the boy plays in the park .
-the boy plays in the garden .
-the boy plays in the yard .
-the boy plays in the school .
-the boy runs in the park .
-the boy runs in the yard .
-the girl plays in the park .
-the girl plays in the garden .
-the girl plays in the yard .
-the girl plays in the school .
-the girl runs in the park .
-the girl runs in the yard .
-the man walks in the park .
-the man walks in the street .
-the man walks in the garden .
-the woman walks in the park .
-the woman walks in the street .
-the woman walks in the garden .
-the cat eats in the kitchen .
-the cat eats in the house .
-the dog eats in the kitchen .
-the dog eats in the house .
-the cat drinks in the kitchen .
-the dog drinks in the kitchen .
-the cat is on the mat .
-the cat is on the bed .
-the cat is on the chair .
-the dog is on the mat .
-the dog is on the bed .
-the book is on the table .
-the cup is on the table .
-the hat is on the chair .
-the cat is in the house .
-the cat is in the room .
-the cat is in the garden .
-the dog is in the house .
-the dog is in the room .
-the cat is under the chair .
-the cat is under the bed .
-the dog is under the chair .
-the ball is under the bed .
-the cat plays with the ball .
-the cat plays with the toy .
-the cat plays with the doll .
-the dog plays with the ball .
-the dog plays with the toy .
-the dog plays with the doll .
-the boy plays with the ball .
-the boy plays with the toy .
-the boy plays with the doll .
-the boy plays with the box .
-the girl plays with the doll .
-the girl plays with the ball .
-the girl plays with the toy .
-the girl plays with the box .
-the baby plays with the toy .
-the baby plays with the ball .
-the cat plays with the dog .
-the dog plays with the cat .
-the boy plays with the girl .
-the girl plays with the boy .
-i like the cat .
-i like the dog .
-i like the bird .
-i like the fish .
-i like the ball .
-i like the book .
-i like the cake .
-i like the tea .
-i like the coffee .
-i like the hat .
-i like the toy .
-i like the doll .
-i like the flower .
-i like the tree .
-i like a cat .
-i like a dog .
-i like a bird .
-i like a ball .
-i like a book .
-i like a cake .
-i see the cat .
-i see the dog .
-i see the bird .
-i see the fish .
-i see the tree .
-i see the flower .
-i see the sun .
-i see the moon .
-i see the star .
-i see the house .
-i see the car .
-i see the park .
-i see a cat .
-i see a dog .
-i see a bird .
-i see a flower .
-i see a tree .
-i see a house .
-i want the ball .
-i want the cake .
-i want the book .
-i want the tea .
-i want the toy .
-i want a ball .
-i want a cake .
-i want a book .
-i want a toy .
-i like my cat .
-i like my dog .
-i like my book .
-i like my ball .
-i like my home .
-i like my school .
-i like my family .
-i like my friend .
-i see my cat .
-i see my dog .
-i see my friend .
-i want my ball .
-i want my book .
-we go to the park .
-we go to the store .
-we go to the school .
-we go to the beach .
-we go to the garden .
-we go to the house .
-we go to the city .
-we go to the lake .
-we go to the pond .
-we go to the sea .
-we go to the room .
-we go to the yard .
-we go to the market .
-we go to the forest .
-we go to the station .
-we play in the park .
-we play in the garden .
-we play in the yard .
-we play in the school .
-we play in the room .
-we eat in the kitchen .
-we eat in the room .
-we eat in the park .
-we eat at home .
-we sleep in the bed .
-we sleep in the room .
-we sleep in the house .
-we read in the room .
-we read in the park .
-we read in the garden .
-we walk in the park .
-we walk in the street .
-we walk in the garden .
-we run in the park .
-we run in the yard .
-the boy is happy .
-the boy is sad .
-the boy is tall .
-the boy is short .
-the boy is nice .
-the boy is kind .
-the boy is smart .
-the boy is funny .
-the boy is young .
-the boy is hungry .
-the girl is happy .
-the girl is sad .
-the girl is tall .
-the girl is short .
-the girl is nice .
-the girl is kind .
-the girl is smart .
-the girl is funny .
-the girl is young .
-the girl is hungry .
-the man is tall .
-the man is short .
-the man is nice .
-the man is kind .
-the man is smart .
-the man is funny .
-the man is old .
-the man is hungry .
-the woman is tall .
-the woman is short .
-the woman is nice .
-the woman is kind .
-the woman is smart .
-the woman is funny .
-the woman is old .
-the woman is hungry .
-the baby is small .
-the baby is happy .
-the baby is young .
-the baby is tired .
-the baby is hungry .
-the mom is nice .
-the mom is kind .
-the mom is happy .
-the mom is tired .
-the dad is nice .
-the dad is kind .
-the dad is happy .
-the dad is tired .
-the friend is nice .
-the friend is kind .
-the friend is smart .
-the friend is funny .
-sam is nice .
-sam is kind .
-sam is happy .
-sam is smart .
-sam is funny .
-anna is nice .
-anna is kind .
-anna is happy .
-anna is smart .
-anna is funny .
-my cat is nice .
-my cat is small .
-my cat is soft .
-my dog is big .
-my dog is kind .
-my dog is soft .
-my toy is new .
-my toy is soft .
-my book is good .
-my book is old .
-my car is red .
-my car is fast .
-my home is big .
-my home is warm .
-my school is big .
-my school is new .
-my mom is nice .
-my mom is kind .
-my mom is happy .
-my dad is nice .
-my dad is kind .
-my dad is happy .
-my friend is nice .
-my friend is kind .
-my friend is smart .
-my friend is funny .
-the cat and the dog play .
-the cat and the dog are friends .
-the cat and the bird play .
-the cat and the bird are friends .
-the dog and the bird play .
-the dog and the bird are friends .
-the boy and the girl play .
-the boy and the girl are friends .
-the boy and the dog play .
-the girl and the cat play .
-the man and the woman are friends .
-the man and the woman play .
-my mom and my dad are friends .
-my mom and my dad play .
-sam and anna are friends .
-sam and anna play .
-a cat and a dog play .
-a cat and a bird play .
-a dog and a bird play .
-a cat and a dog are friends .
-a boy and a girl play .
-a boy and a girl are friends .
-we like to play together .
-we like to eat together .
-we like to read together .
-we like to run together .
-we like to walk together .
-we like to sing together .
-we like to dance together .
-we like to jump together .
-we play together .
-we eat together .
-we read together .
-we run together .
-we walk together .
-we sing together .
-we dance together .
-we sleep together .
-what is your name ?
-my name is sam .
-my name is anna .
-my name is john .
-my name is mary .
-what is your age ?
-i am ten years old .
-i am five years old .
-i am eight years old .
-how are you ?
-i am fine .
-i am happy .
-i am tired .
-where do you live ?
-i live in the city .
-i live in the town .
-i live in the house .
-what is this ?
-this is a book .
-this is a cat .
-this is a ball .
-what is that ?
-that is a dog .
-that is a tree .
-that is a car .
-how old are you ?
-i am young .
-i am old .
-who is this ?
-this is my friend .
-this is my mom .
-this is my dad .
-who is that ?
-that is my friend .
-that is my cat .
-that is my dog .
-the cat has a ball .
-the cat has a toy .
-the cat has a hat .
-the dog has a ball .
-the dog has a toy .
-the dog has a bone .
-the boy has a book .
-the boy has a toy .
-the boy has a ball .
-the girl has a book .
-the girl has a toy .
-the girl has a doll .
-the man has a car .
-the man has a hat .
-the woman has a car .
-the woman has a hat .
-the baby has a toy .
-the baby has a ball .
-the boy has a bike .
-the girl has a bike .
-the cat is on the mat .
-the cat is on the bed .
-the cat is on the table .
-the cat is in the room .
-the cat is in the house .
-the cat is under the chair .
-the cat is under the table .
-the dog is on the mat .
-the dog is on the bed .
-the dog is in the room .
-the dog is in the house .
-the dog is under the chair .
-the book is on the table .
-the book is on the bed .
-the cup is on the table .
-the cup is on the mat .
-the ball is under the bed .
-the ball is under the table .
-the hat is on the chair .
-the hat is on the bed .
-the toy is in the box .
-the toy is on the bed .
-the cat is near the door .
-the dog is near the door .
-the ball is near the door .
-the cat likes the dog .
-the cat likes the bird .
-the cat likes the ball .
-the cat likes the toy .
-the dog likes the cat .
-the dog likes the bird .
-the dog likes the ball .
-the boy likes the girl .
-the boy likes the cat .
-the boy likes the dog .
-the boy likes the ball .
-the girl likes the boy .
-the girl likes the cat .
-the girl likes the dog .
-the girl likes the doll .
-the cat sees the dog .
-the cat sees the bird .
-the cat sees the ball .
-the dog sees the cat .
-the dog sees the bird .
-the dog sees the ball .
-the boy sees the girl .
-the boy sees the cat .
-the girl sees the boy .
-the girl sees the dog .
-the cat wants the ball .
-the cat wants the toy .
-the dog wants the ball .
-the dog wants the toy .
-the boy wants the ball .
-the boy wants the book .
-the girl wants the doll .
-the girl wants the book .
-there is a cat .
-there is a dog .
-there is a bird .
-there is a fish .
-there is a ball .
-there is a book .
-there is a tree .
-there is a flower .
-there is a house .
-there is a car .
-there is a cat in the room .
-there is a dog in the room .
-there is a book on the table .
-there is a cup on the table .
-there is a bird in the tree .
-there is a fish in the water .
-there is a cat on the mat .
-there is a dog on the bed .
-good morning .
-good afternoon .
-good evening .
-good night .
-hello .
-hi .
-bye .
-see you later .
-see you soon .
-thank you .
-you are welcome .
-have a nice day .
-have a good day .
-nice to meet you .
-see you tomorrow .
-see you tonight .
-my cat likes the ball .
-my cat likes the toy .
-my dog likes the ball .
-my dog likes the toy .
-my cat sees the bird .
-my dog sees the cat .
-the boy has a red ball .
-the girl has a red ball .
-the boy has a blue hat .
-the girl has a blue hat .
-the cat runs in the park .
-the dog runs in the park .
-the cat runs in the garden .
-the dog runs in the garden .
-the cat sleeps in the room .
-the dog sleeps in the room .
-the baby sleeps in the room .
-the baby sleeps in the bed .
-the girl reads in the room .
-the boy reads in the room .
-the girl reads in the park .
-the boy reads in the park .
-sam likes the cat .
-sam likes the dog .
-anna likes the cat .
-anna likes the dog .
-sam has a cat .
-sam has a dog .
-anna has a cat .
-anna has a dog .
-sam sees the cat .
-anna sees the dog .
-i walk in the park .
-i walk in the garden .
-i walk in the street .
-i run in the park .
-i run in the yard .
-i play in the park .
-i play in the garden .
-i sleep in the bed .
-i sleep in the room .
-i read in the room .
-i read in the park .
-i eat in the kitchen .
-i eat at home .
-i drink the milk .
-i drink the tea .
-i eat the apple .
-i eat the bread .
-i eat the cake .
-i like the apple .
-i like the milk .
-i like the water .
-i like the bread .
-the sky is gray .
-the dust is gray .
-the car is gray .
-the cat is gray .
-the sun is yellow .
-the ball is yellow .
-the flower is yellow .
-the bird is yellow .
-the apple is yellow .
-the hat is yellow .
-the cup is yellow .
-the bag is yellow .
-the box is yellow .
-the flower is purple .
-the ball is purple .
-the hat is purple .
-the pen is purple .
-the book is purple .
-the bag is purple .
-the box is purple .
-the tree is brown .
-the branch is brown .
-the bread is brown .
-the dog is brown .
-the chair is brown .
-the table is brown .
-the door is brown .
-the bag is brown .
-the shoe is brown .
-the bike is brown .
-the boy listens .
-the girl listens .
-the man listens .
-the woman listens .
-the baby listens .
-my sister listens .
-my brother listens .
-the boy listens to the bird .
-the girl listens to the man .
-the boy helps the girl .
-the girl helps the boy .
-the man helps the woman .
-the woman helps the man .
-my sister helps my mom .
-my brother helps my dad .
-my mom cooks in the kitchen .
-my dad cooks in the kitchen .
-my grandma cooks the cake .
-my mom cooks the bread .
-the girl cleans the room .
-the boy cleans the room .
-my mom cleans the house .
-my dad cleans the car .
-my sister cleans the table .
-my brother cleans the cup .
-the boy draws a cat .
-the girl draws a dog .
-the boy draws a tree .
-the girl draws a flower .
-the boy opens the door .
-the girl opens the box .
-the man opens the window .
-the woman opens the bag .
-the boy closes the door .
-the girl closes the box .
-the man closes the window .
-the woman closes the bag .
-the boy waits in the park .
-the girl waits in the garden .
-the man waits in the street .
-the woman waits at home .
-my sister waits in the room .
-my brother waits in the yard .
-the dog waits near the door .
-the cat waits under the chair .
-the cat is on the bed .
-the cat is in the garden .
-the dog is in the garden .
-the boy is in the house .
-the girl is in the room .
-the baby is in the bed .
-the man is in the car .
-the woman is in the house .
-the bird is on the branch .
-the bird is in the sky .
-the fish is in the pond .
-the fish is in the lake .
-the flower is in the garden .
-the tree is in the yard .
-the ball is on the floor .
-the book is on the chair .
-the cup is on the bed .
-the hat is on the table .
-the bag is on the floor .
-the box is on the table .
-the key is on the table .
-the pen is on the book .
-the phone is on the bed .
-the watch is on the table .
-i walk in the garden .
-i walk in the yard .
-i run in the garden .
-i read a book .
-i draw a cat .
-i draw a tree .
-i like the yellow flower .
-i like the purple hat .
-i like the brown dog .
-i want the yellow ball .
-i see the yellow bird .
-we walk in the street .
-we run in the garden .
-we read in the room .
-we play in the yard .
-we eat the cake .
-we drink the tea .
-we like the cat .
-we like the dog .
-we like the flower .
-we see the moon .
-we see the star .
-we see the sun .
-the cat and the bird are friends .
-the dog and the cat are friends .
-the boy and the girl are friends .
-sam and anna like the cat .
-sam and anna like the dog .
-sam plays with anna .
-anna plays with sam .
-sam reads a book .
-anna reads a book .
-sam walks in the park .
-anna walks in the park .
+const DEFAULT_CORPUS = `A cat is an animal.
+A dog is an animal.
+A bird is an animal.
+A fish is an animal.
+A kitten is a young cat.
+A puppy is a young dog.
+A chick is a young bird.
+A duck is a bird.
+A cow is an animal.
+A horse is an animal.
+A sheep is an animal.
+A goat is an animal.
+A pig is an animal.
+A rabbit is an animal.
+A mouse is a small animal.
+A frog is an animal.
+A bee is an insect.
+A butterfly is an insect.
+An ant is an insect.
+A spider has eight legs.
+Cats have four legs.
+Dogs have four legs.
+Birds have two legs and two wings.
+Fish have fins and gills.
+A cat can run.
+A dog can run.
+A bird can fly.
+A fish can swim.
+A rabbit can hop.
+A horse can run fast.
+A cow gives milk.
+A sheep has wool.
+A bee makes honey.
+A butterfly has wings.
+An ant is small.
+Some cats are big.
+Some cats are small.
+Some dogs are big.
+Some dogs are small.
+Cats can be soft to touch.
+Dogs can be friendly.
+Birds can sing.
+Fish live in water.
+Fish breathe with gills.
+A cat has a tail.
+A dog has a tail.
+A bird has feathers.
+A fish has scales.
+A kitten is small.
+A puppy is small.
+A duck can swim.
+A frog can jump.
+A mouse is small.
+A horse has a long tail.
+A cow has horns.
+A sheep has soft wool.
+A goat can climb.
+A pig is a farm animal.
+A rabbit has long ears.
+A bee has wings.
+A butterfly can be colorful.
+An ant can carry things.
+
+The sun is yellow.
+The sky is blue.
+Grass is green.
+Snow is white.
+Coal is black.
+A banana is yellow.
+An apple can be red.
+An apple can be green.
+An orange is orange.
+A carrot is orange.
+A grape can be purple.
+A rose can be red.
+A leaf is usually green.
+Milk is white.
+The moon is gray.
+A cloud can be white.
+A cloud can be gray.
+A stop sign is red.
+A school bus is yellow.
+A fire truck is red.
+A tree trunk is brown.
+Soil is brown.
+The sea is blue.
+The sky can be gray on a cloudy day.
+A pen can be blue.
+A hat can be red.
+A bag can be black.
+A box can be brown.
+A shoe can be white.
+A bike can be red.
+A car can be gray.
+A flower can be yellow.
+A flower can be purple.
+A bird can be blue.
+A bird can be yellow.
+A cat can be gray.
+A dog can be brown.
+A ball can be red.
+A ball can be yellow.
+A cup can be yellow.
+A book can be purple.
+
+A ball is round.
+A ball can bounce.
+A book has pages.
+A book has a cover.
+A car has wheels.
+A car can move.
+A bike has two wheels.
+A bike can move.
+A tree is a plant.
+A tree has leaves.
+A flower is a plant.
+A flower has petals.
+A house has a roof.
+A house has a door.
+A room has walls.
+A room can have a window.
+A park has trees.
+A park is a place for rest.
+A mat is flat.
+A mat can be soft.
+A bed is for sleeping.
+A bed can be warm.
+A chair is for sitting.
+A chair can be hard.
+A cup is for drinking.
+A cup can hold water.
+A hat is for the head.
+A shoe is for the foot.
+An apple is a fruit.
+An egg is food.
+An egg comes from a bird.
+Cake is a baked food.
+Bread is a baked food.
+Milk is a drink.
+Water is a liquid.
+Tea is a drink.
+Coffee is a drink.
+A table has legs.
+A door can open and close.
+A window lets in light.
+A toy is for play.
+A doll is a toy.
+A box can hold things.
+A bag carries things.
+A key opens a lock.
+A pen is for writing.
+A phone is for calling.
+A watch tells time.
+A clock tells time.
+A spoon is for eating.
+A fork is for eating.
+A plate holds food.
+A bowl holds food.
+A towel is for drying.
+Soap is for washing.
+A brush is for cleaning.
+A comb is for hair.
+A mirror shows a reflection.
+A pencil is for writing.
+A crayon is for drawing.
+A ruler measures length.
+Scissors cut paper.
+Glue sticks things together.
+A lamp gives light.
+A pillow is for sleeping.
+A blanket keeps you warm.
+A broom is for sweeping.
+A basket carries things.
+A bottle holds liquid.
+A jar holds food.
+A kite flies in the wind.
+A drum makes sound.
+A bell makes sound.
+A ladder helps you climb.
+A rope can tie things.
+A needle is used for sewing.
+Thread goes through a needle.
+A button can close a shirt.
+A pocket can hold a key.
+A sock is for the foot.
+A coat keeps you warm.
+A scarf keeps your neck warm.
+A glove is for the hand.
+An umbrella keeps rain off you.
+Rain boots keep feet dry.
+A towel can dry your hands.
+Shampoo is for washing hair.
+A toothbrush is for cleaning teeth.
+Toothpaste is for brushing teeth.
+A sink is for washing.
+A bathtub is for bathing.
+A shower is for washing.
+A fridge keeps food cold.
+A stove is for cooking.
+An oven is for baking.
+A pot is for cooking.
+A pan is for cooking.
+A knife can cut food.
+A glass can hold water.
+A can holds food.
+A bucket can hold water.
+A mop is for cleaning the floor.
+A dustpan helps with sweeping.
+A trash can holds waste.
+A hammer drives nails.
+A nail can hold wood together.
+A screwdriver turns screws.
+A wrench turns bolts.
+Tape can stick paper.
+An eraser removes pencil marks.
+A marker can write on paper.
+Paint can color paper.
+A paintbrush applies paint.
+A canvas is for painting.
+A notebook has pages.
+A folder holds papers.
+An envelope holds a letter.
+A stamp goes on a letter.
+A card can carry a message.
+A map shows places.
+A ticket can be for a bus.
+A wallet can hold money.
+A coin is money.
+A bill can be money.
+A lock can keep a door closed.
+
+A garden has plants.
+A street has houses and roads.
+A beach has sand.
+A school is for learning.
+A store sells things.
+A train runs on tracks.
+A bus carries people.
+A plane flies in the sky.
+A boat travels on water.
+A kitchen is for cooking.
+A bathroom is for washing.
+A bedroom is for sleeping.
+A living room is for sitting.
+A yard is outside a house.
+A market sells food.
+A station is for trains or buses.
+A city is large.
+A town is smaller than a city.
+A village is small.
+A forest has many trees.
+A lake is water surrounded by land.
+A pond is small water.
+A river flows to the sea.
+A mountain is very high.
+The sea is salt water.
+The sky is above us.
+The sun is a star.
+The moon is a natural satellite.
+Stars are in the sky.
+The earth is a planet.
+A cloud is made of water droplets.
+Rain falls from clouds.
+Snow is frozen water.
+Wind moves air.
+Fire is hot.
+Ice is cold.
+A rock is hard.
+Sand is tiny rocks.
+Soil is dirt.
+A road is for cars.
+A bridge goes over water.
+A farm has animals.
+A zoo has animals.
+A library has books.
+A hospital helps sick people.
+A bank keeps money.
+A restaurant serves food.
+A bakery sells bread.
+A park is open space.
+A city has streets.
+A house is a home.
+A home is where people live.
+A school has classrooms.
+A classroom has desks.
+A desk is for writing.
+A playground is for play.
+A garden can have flowers.
+A yard can have a tree.
+A floor is under your feet.
+A ceiling is above your head.
+A wall is vertical.
+A roof covers a house.
+A window is made of glass.
+A door is made of wood or metal.
+A key opens a door.
+A street can be quiet.
+A beach can be warm.
+A forest can be quiet.
+A lake can be deep.
+A pond can be small.
+A river can be long.
+A mountain can be tall.
+A city can be busy.
+A town can be quiet.
+A path can be narrow.
+A sidewalk is for walking.
+A fence can mark a yard.
+A gate can open and close.
+A tunnel goes through a hill.
+An airport is for planes.
+A harbor is for boats.
+A mall has many stores.
+A clinic helps sick people.
+A pharmacy sells medicine.
+A college is for learning.
+A museum shows things.
+A theater shows plays.
+A cinema shows movies.
+A cafe serves drinks.
+A hotel is for travelers.
+A desert is dry.
+An island has water around it.
+A cave is a hollow place.
+A waterfall is falling water.
+A rainbow can appear after rain.
+A storm can bring rain and wind.
+Thunder is loud.
+Lightning is bright.
+Fog makes it hard to see.
+Smoke comes from fire.
+Ash is left after burning.
+Mud is wet soil.
+A branch grows from a tree.
+A root grows under the ground.
+A seed can grow into a plant.
+A petal is part of a flower.
+A vegetable is food.
+Rice is food.
+Pasta is food.
+Cheese is food.
+Soup is food.
+Juice is a drink.
+
+A boy is a young male person.
+A girl is a young female person.
+A man is an adult male person.
+A woman is an adult female person.
+A baby is a very young person.
+A mom is a mother.
+A dad is a father.
+A sister is a female sibling.
+A brother is a male sibling.
+A grandma is a grandmother.
+A grandpa is a grandfather.
+An aunt is a parent's sister.
+An uncle is a parent's brother.
+A cousin is a child of an aunt or uncle.
+A friend is a person you like.
+A family is a group of related people.
+Sam is a name.
+Anna is a name.
+John is a name.
+Mary is a name.
+People can be happy.
+People can be sad.
+People can be tired.
+People can be hungry.
+People can be kind.
+People can be smart.
+People can be funny.
+People can be tall.
+People can be short.
+People can be young.
+People can be old.
+A boy can play.
+A girl can read.
+A man can walk.
+A woman can cook.
+A baby can sleep.
+A baby can cry.
+A baby can smile.
+My mom can cook.
+My dad can clean.
+My sister can draw.
+My brother can run.
+My grandma can bake.
+My grandpa can read.
+My friend can help.
+Sam can read.
+Anna can write.
+Sam and Anna are friends.
+Sam and Anna play together.
+My family eats together.
+My family reads together.
+We help each other.
+We play together.
+We eat together.
+We read together.
+We walk together.
+We sing together.
+We dance together.
+We sleep at night.
+We wake in the morning.
+
+A cat can sit.
+A cat can sleep.
+A cat can eat.
+A cat can drink.
+A dog can sit.
+A dog can run.
+A dog can sleep.
+A dog can eat.
+A dog can drink.
+A bird can sing.
+A bird can fly.
+A bird can eat.
+A fish can swim.
+A fish can eat.
+A boy can run.
+A boy can jump.
+A boy can smile.
+A boy can laugh.
+A boy can read.
+A boy can eat.
+A girl can play.
+A girl can run.
+A girl can jump.
+A girl can smile.
+A girl can laugh.
+A girl can read.
+A girl can eat.
+A man can smile.
+A man can read.
+A man can eat.
+A man can sit.
+A woman can walk.
+A woman can smile.
+A woman can read.
+A woman can sit.
+A baby can eat.
+A baby can drink.
+I can walk.
+I can run.
+I can read.
+I can write.
+I can draw.
+I can sing.
+I can dance.
+I can jump.
+I can swim.
+I can help.
+I can cook.
+I can clean.
+I can open the door.
+I can close the door.
+I can carry the bag.
+I can push the box.
+I can pull the box.
+I can throw the ball.
+I can catch the ball.
+I can build a house with blocks.
+I can fix the toy.
+I can count to ten.
+I can wash my hands.
+I can brush my teeth.
+I can comb my hair.
+I can put on my shoes.
+I can take off my hat.
+I can find the key.
+I can look at the bird.
+I can hear the bell.
+I can smell the flower.
+I can taste the apple.
+I can touch the soft cat.
+
+A cat can sit on a mat.
+A cat can sleep on a bed.
+A cat can sit on a chair.
+A cat can sit on the floor.
+A cat can sit on a table.
+A dog can sit on a mat.
+A dog can sleep on a bed.
+A dog can sit on the floor.
+A bird can sit on a tree.
+A bird can sit on a branch.
+A bird can sit on a roof.
+A bird can sing in a tree.
+A bird can sing in a garden.
+A bird can fly in the sky.
+A fish can swim in water.
+A fish can swim in the sea.
+A fish can swim in a lake.
+A fish can swim in a pond.
+A boy can play in a park.
+A boy can play in a garden.
+A boy can play in a yard.
+A boy can run in a park.
+A girl can play in a park.
+A girl can play in a garden.
+A girl can run in a yard.
+A man can walk in a park.
+A man can walk in a street.
+A woman can walk in a garden.
+A cat can eat in a kitchen.
+A dog can eat in a kitchen.
+A cat can drink in a kitchen.
+A dog can drink in a kitchen.
+A cat can be on a mat.
+A dog can be on a bed.
+A book can be on a table.
+A cup can be on a table.
+A hat can be on a chair.
+A cat can be in a house.
+A dog can be in a room.
+A cat can be under a chair.
+A ball can be under a bed.
+A cat can play with a ball.
+A dog can play with a toy.
+A boy can play with a doll.
+A girl can play with a box.
+A baby can play with a toy.
+A cat and a dog can play.
+A boy and a girl can play.
+A cat and a dog can live in the same home.
+A boy and a girl can be friends.
+A cat can like a toy.
+A dog can like a ball.
+A boy can like a book.
+A girl can like a doll.
+I like my cat.
+I like my dog.
+I like my book.
+I like my ball.
+I like my home.
+I like my school.
+I like my family.
+I like my friend.
+I see my cat.
+I see my dog.
+I see my friend.
+I want my ball.
+I want my book.
+I see the sun.
+I see the moon.
+I see a star.
+I see a house.
+I see a car.
+I see a park.
+
+What is your name?
+My name is Sam.
+My name is Anna.
+My name is John.
+My name is Mary.
+What is your age?
+I am ten years old.
+I am five years old.
+I am eight years old.
+How are you?
+I am fine.
+I am happy.
+I am tired.
+Where do you live?
+I live in a city.
+I live in a town.
+I live in a house.
+What is this?
+This is a book.
+This is a cat.
+This is a ball.
+What is that?
+That is a dog.
+That is a tree.
+That is a car.
+How old are you?
+I am young.
+I am old.
+Who is this?
+This is my friend.
+This is my mom.
+This is my dad.
+Who is that?
+That is my friend.
+That is my cat.
+That is my dog.
+Good morning.
+Good afternoon.
+Good evening.
+Good night.
+Hello.
+Hi.
+Bye.
+See you later.
+See you soon.
+Thank you.
+You are welcome.
+Have a nice day.
+Have a good day.
+Nice to meet you.
+See you tomorrow.
+See you tonight.
+
+A cat has a tail.
+A dog has a tail.
+A bird has feathers.
+A fish has scales.
+A boy has a book.
+A boy has a toy.
+A boy has a ball.
+A girl has a book.
+A girl has a toy.
+A girl has a doll.
+A man has a car.
+A man has a hat.
+A woman has a car.
+A woman has a hat.
+A baby has a toy.
+A baby has a ball.
+A boy has a bike.
+A girl has a bike.
+Sam has a cat.
+Sam has a dog.
+Anna has a cat.
+Anna has a dog.
+My cat has soft fur.
+My dog has soft fur.
+My toy is new.
+My book is good.
+My car is red.
+My home is warm.
+My school is new.
+My mom is kind.
+My dad is kind.
+My friend is smart.
+The cat has a ball.
+The dog has a bone.
+The girl has a doll.
+The boy has a red ball.
+The girl has a blue hat.
+
+I walk in the park.
+I walk in the garden.
+I walk in the street.
+I run in the park.
+I run in the yard.
+I play in the park.
+I play in the garden.
+I sleep in a bed.
+I sleep in a room.
+I read in a room.
+I read in a park.
+I eat in a kitchen.
+I eat at home.
+I drink milk.
+I drink tea.
+I eat an apple.
+I eat bread.
+I eat cake.
+I like apples.
+I like milk.
+I like water.
+I like bread.
+We go to the park.
+We go to the store.
+We go to school.
+We go to the beach.
+We go to the garden.
+We go home.
+We go to the city.
+We go to the lake.
+We go to the pond.
+We go to the sea.
+We go to the market.
+We go to the forest.
+We go to the station.
+We play in the park.
+We play in the garden.
+We play in the yard.
+We eat in the kitchen.
+We read in the room.
+We walk in the street.
+We run in the garden.
+We drink tea.
+We like the cat.
+We like the dog.
+We like flowers.
+We see the moon.
+We see a star.
+We see the sun.
+
+A star is bright.
+The sun is bright.
+The moon is bright.
+The lamp is bright.
+The light is bright.
+The screen is bright.
+The sky is bright on a clear day.
+The room is bright in the morning.
+A bright star is in the sky.
+Lightning is bright.
+A flashlight is bright.
+A candle flame is bright.
+A diamond can look bright.
+A white wall can look bright in the sun.
+
+An apple can be red.
+A rose can be red.
+A stop sign is red.
+A fire truck is red.
+A hat can be red.
+A ball can be red.
+A car can be red.
+A bike can be red.
+A cup can be red.
+A flower can be red.
+A red apple is on the table.
+A red ball is on the floor.
+A red car is in the street.
+
+The sky is blue.
+The sea is blue.
+A pen can be blue.
+A bird can be blue.
+A shirt can be blue.
+A car can be blue.
+The lake looks blue on a clear day.
+A cup can be blue.
+A blue bird is on the branch.
+A blue book is on the desk.
+
+Grass is green.
+A leaf is usually green.
+A tree can be green.
+The garden is green.
+A frog can be green.
+An apple can be green.
+A shirt can be green.
+A park is green.
+A green leaf is on the ground.
+A green ball is in the box.
+
+The sun is yellow.
+A banana is yellow.
+A school bus is yellow.
+A flower can be yellow.
+A ball can be yellow.
+A hat can be yellow.
+A cup can be yellow.
+A bird can be yellow.
+A yellow flower is in the garden.
+A yellow car is in the street.
+
+Some dogs are big.
+Some cats are big.
+A house can be big.
+A tree can be big.
+The sun is big.
+The sky is big.
+A bus can be big.
+A box can be big.
+A park can be big.
+A room can be big.
+A big dog can run in the yard.
+A big tree is in the park.
+
+A mouse is small.
+A key is small.
+A cup can be small.
+A bird can be small.
+A star looks small.
+A baby is small.
+A toy can be small.
+A box can be small.
+A pond can be small.
+A village is small.
+A small key is on the table.
+A small bird is in the tree.
+
+A cat's fur can be soft.
+A blanket can be soft.
+A pillow can be soft.
+A toy can be soft.
+Bread can be soft.
+A mat can be soft.
+A bed can be soft.
+Cotton is soft.
+A towel can be soft.
+A flower petal can be soft.
+A soft blanket is on the bed.
+A soft pillow is on the chair.
+
+A rock is hard.
+A chair can be hard.
+A table is hard.
+A door can be hard.
+A box can be hard.
+A shell can be hard.
+A nut can be hard.
+A floor can be hard.
+A wall is hard.
+A metal cup can be hard.
+A hard floor is under your feet.
+A hard table is in the room.
+
+A car can be fast.
+A train can be fast.
+A plane is fast.
+A bike can be fast.
+A dog can run fast.
+A horse can run fast.
+A fish can be fast.
+A runner can be fast.
+A bus can be fast on a highway.
+A boat can be fast.
+A fast train is on the track.
+A fast car is on the road.
+
+A turtle is slow.
+A snail is slow.
+A bus can be slow.
+A train can be slow.
+A heavy truck can be slow.
+A boat can be slow.
+A clock can be slow.
+A computer can be slow.
+A walk can be slow.
+A river can be slow.
+A slow bus is on the street.
+A slow clock is on the wall.
+
+A phone can be new.
+A book can be new.
+A toy can be new.
+A bike can be new.
+A car can be new.
+A shoe can be new.
+A house can be new.
+A school can be new.
+A bag can be new.
+A pen can be new.
+A new book is on the table.
+A new phone is in the bag.
+
+A book can be old.
+A car can be old.
+A house can be old.
+A chair can be old.
+A watch can be old.
+A key can be old.
+A shoe can be old.
+A tree can be old.
+A door can be old.
+A coin can be old.
+An old chair is in the room.
+An old tree is in the yard.
+
+The room is clean.
+The cup is clean.
+The table is clean.
+The window is clean.
+The street is clean.
+Hands can be clean.
+Water can be clean.
+A shirt can be clean.
+A floor can be clean.
+A car can be clean.
+A clean cup is on the table.
+A clean window lets in light.
+
+The bed can be warm.
+The room can be warm.
+The tea can be warm.
+The bread can be warm.
+The sun makes the beach warm.
+A coat keeps you warm.
+A blanket keeps you warm.
+The water can be warm.
+A house can be warm.
+A cup can be warm.
+A warm blanket is on the bed.
+A warm room is in the house.
+
+Milk can be cold.
+Water can be cold.
+Ice is cold.
+Snow is cold.
+The sea can be cold.
+The air can be cold.
+A drink can be cold.
+A room can be cold.
+The morning can be cold.
+A metal chair can be cold.
+Cold milk is in the cup.
+Cold water is in the bottle.
+
+The sun is hot.
+Tea can be hot.
+Coffee can be hot.
+Soup can be hot.
+Fire is hot.
+The sand can be hot.
+The water can be hot.
+A stove is hot.
+A day can be hot.
+A cup can be hot.
+Hot soup is in the bowl.
+Hot tea is in the cup.
+
+A library is quiet.
+A pond can be quiet.
+A street can be quiet.
+A room can be quiet.
+A park can be quiet.
+A fish can be quiet.
+A mouse can be quiet.
+The night can be quiet.
+A school can be quiet.
+A garden can be quiet.
+A quiet room is in the house.
+A quiet street is in the town.
+
+A drum can be loud.
+A bell can be loud.
+A plane can be loud.
+A train can be loud.
+A dog can be loud.
+A bird can be loud.
+Music can be loud.
+A truck can be loud.
+A crowd can be loud.
+Thunder is loud.
+A loud bell is near the door.
+A loud train is on the track.
+
+A flower can be pretty.
+A bird can be pretty.
+A doll can be pretty.
+A garden can be pretty.
+The beach can be pretty.
+A dress can be pretty.
+A picture can be pretty.
+A butterfly can be pretty.
+A sunset can be pretty.
+A rainbow can be pretty.
+A pretty flower is in the garden.
+A pretty picture is on the wall.
+
+A book can be good.
+An apple can be good.
+Cake can be good.
+Bread can be good.
+Tea can be good.
+A friend can be good.
+A day can be good.
+A plan can be good.
+A song can be good.
+A school can be good.
+A good book is on the desk.
+A good apple is in the basket.
+
+A dog can be kind.
+A friend can be kind.
+My mom is kind.
+My dad is kind.
+A teacher can be kind.
+A neighbor can be kind.
+A nurse can be kind.
+A person can be kind.
+My grandma is kind.
+My grandpa is kind.
+A kind friend helps you.
+A kind person helps others.
+
+A boy can be happy.
+A girl can be happy.
+A baby can be happy.
+My mom can be happy.
+My dad can be happy.
+A friend can be happy.
+People can be happy.
+A dog can look happy.
+A smile can show a happy face.
+A song can make you happy.
+A happy child can laugh.
+A happy dog can wag its tail.
+
+A boy can be sad.
+A girl can be sad.
+A baby can be sad.
+People can be sad.
+A friend can be sad.
+A sad face can show sadness.
+A rainy day can make some people sad.
+A sad story can make you sad.
+A lost toy can make a child sad.
+A goodbye can make you sad.
+A sad movie can make people cry.
+A sad song can sound slow.
+
+A baby can be tired.
+My mom can be tired.
+My dad can be tired.
+A runner can be tired.
+A worker can be tired.
+People can be tired after work.
+A dog can be tired after play.
+I can be tired at night.
+A student can be tired after school.
+A traveler can be tired.
+A tired worker can rest.
+A tired dog can sleep.
+
+A baby can be hungry.
+A boy can be hungry.
+A girl can be hungry.
+A dog can be hungry.
+People can be hungry before a meal.
+I can be hungry in the morning.
+A cat can be hungry.
+A bird can be hungry.
+A worker can be hungry at lunch.
+A student can be hungry after school.
+A hungry baby can cry.
+A hungry dog can wait for food.
+
+A tree can be tall.
+A man can be tall.
+A woman can be tall.
+A building can be tall.
+A mountain is tall.
+A giraffe is tall.
+A tower can be tall.
+A boy can be tall.
+A girl can be tall.
+A flower can grow tall.
+A tall tree is in the park.
+A tall building is in the city.
+
+A pen can be short.
+A book can be short.
+A boy can be short.
+A girl can be short.
+A man can be short.
+A woman can be short.
+A line can be short.
+A street can be short.
+A story can be short.
+A table can be short.
+A short line is on the paper.
+A short street is near the park.
+
+A train can be long.
+A street can be long.
+A river can be long.
+A snake can be long.
+A line can be long.
+A story can be long.
+A table can be long.
+A road can be long.
+A bridge can be long.
+A day can feel long.
+A long train is on the track.
+A long river flows to the sea.
+
+A ball is round.
+The moon can look round.
+A plate can be round.
+A wheel is round.
+An orange is round.
+A coin can be round.
+A clock can be round.
+A bowl can be round.
+A table can be round.
+A stone can be round.
+A round ball is on the floor.
+A round plate is on the table.
+
+A cup can be full.
+A box can be full.
+A bag can be full.
+A store can be full of things.
+A room can be full of people.
+A basket can be full.
+A jar can be full.
+A bus can be full.
+A plate can be full.
+A tank can be full.
+A full cup is on the table.
+A full basket is in the kitchen.
+
+A box can be empty.
+A cup can be empty.
+A room can be empty.
+A bag can be empty.
+A bottle can be empty.
+A street can be empty.
+A plate can be empty.
+A jar can be empty.
+A bus can be empty.
+A house can be empty.
+An empty box is on the floor.
+An empty cup is on the table.
+
+The room can be dark.
+The night is dark.
+The coffee is dark.
+A cave can be dark.
+A street can be dark at night.
+The sky can be dark at night.
+A closet can be dark.
+A forest can be dark at night.
+A movie theater can be dark.
+A box can be dark inside.
+A dark room needs a light.
+A dark sky can bring rain.
+
+The sea can be deep.
+A lake can be deep.
+A river can be deep.
+A pond can be deep.
+A well can be deep.
+A hole can be deep.
+A pool can be deep.
+The ocean is deep.
+A cave can be deep.
+A voice can be deep.
+A deep lake is in the park.
+A deep well is near the house.
+
+An apple can be sweet.
+Cake can be sweet.
+Honey is sweet.
+Sugar is sweet.
+A peach can be sweet.
+A mango can be sweet.
+A drink can be sweet.
+A candy is sweet.
+A berry can be sweet.
+A melon can be sweet.
+A sweet apple is in the basket.
+A sweet cake is on the plate.
+
+A kitten can play with a ball.
+A puppy can run in a yard.
+A chick can stay near a hen.
+A duck can swim in a pond.
+A cow can eat grass.
+A horse can run in a field.
+A sheep can eat grass.
+A goat can climb a hill.
+A pig can live on a farm.
+A rabbit can hop in a garden.
+A mouse can hide in a box.
+A frog can jump into a pond.
+A bee can fly to a flower.
+A butterfly can rest on a leaf.
+An ant can carry a crumb.
+A spider can make a web.
+
+A spoon can hold soup.
+A fork can hold food.
+A plate can hold an apple.
+A bowl can hold rice.
+A towel can dry hands.
+Soap can clean hands.
+A brush can clean shoes.
+A comb can fix hair.
+A mirror can show your face.
+A pencil can write a word.
+A crayon can draw a sun.
+A ruler can measure a line.
+Scissors can cut paper.
+Glue can join paper.
+A lamp can light a room.
+A pillow can rest your head.
+A blanket can keep you warm.
+A broom can sweep the floor.
+A basket can hold fruit.
+A bottle can hold water.
+A jar can hold jam.
+A kite can fly in the wind.
+A drum can make a loud sound.
+A bell can make a clear sound.
+
+My sister can help my mom.
+My brother can help my dad.
+My grandma can bake bread.
+My grandpa can read a book.
+My aunt can visit us.
+My uncle can drive a car.
+My cousin can play with me.
+A black cat can sit on a mat.
+A white bird can fly in the sky.
+A gray cloud can bring rain.
+A pink flower can grow in a garden.
+An orange carrot can grow in soil.
+A pink hat can be on a chair.
+A black bag can be on the floor.
+A white cup can be on a table.
+A gray car can be in the street.
+A brown dog can run in a yard.
+
+I listen to the bird.
+I help my friend.
+I cook an egg.
+I clean the table.
+I draw a cat.
+I open the box.
+I close the door.
+I wait for the bus.
+I wash my cup.
+I carry the bag.
+I push the box.
+I pull the door.
+I throw the ball.
+I catch the ball.
+I build a tower with blocks.
+I fix my toy.
+I count the apples.
+I buy bread at the store.
+I give the book to my friend.
+I take the cup.
+I put the pen on the table.
+I find the key.
+I look at the moon.
+I hear the train.
+I smell the bread.
+I taste the cake.
+I touch the soft blanket.
+
+We go to the market in the morning.
+We go to the park in the afternoon.
+We eat dinner in the evening.
+We sleep at night.
+The kitchen is in the house.
+The bathroom is in the house.
+The bedroom is in the house.
+The living room is in the house.
+The yard is near the house.
+The market is in the town.
+The station is in the city.
+The village is near the forest.
+The lake is near the mountain.
+The pond is in the garden.
+The river is near the town.
+The beach is near the sea.
+The forest has many trees.
+The mountain is tall.
+The city is busy.
+The town is quiet.
+The village is small.
+The lake is deep.
+The pond is small.
+The river is long.
+The beach is warm.
+The sea is blue.
+The sky is bright.
+The sun is hot.
+The moon is bright.
+The star is small.
+The flower is pretty.
+The garden is green.
+The street is long.
+The school is big.
+The store is full.
+The train is long.
+The bus is slow.
+The plane is fast.
+The boat is small.
+The phone is new.
+The watch is old.
+The tea is hot.
+The coffee is dark.
+The table is clean.
+The door is old.
+The window is clean.
+The toy is soft.
+The doll is pretty.
+The box is empty.
+The bag is small.
+The key is old.
+The pen is blue.
+
+A cat is small.
+A dog is big.
+A bird is pretty.
+A fish is quiet.
+A ball is round.
+A book is good.
+A car is fast.
+A bike is new.
+A tree is tall.
+A flower is red.
+A house is new.
+A room is warm.
+A mat is soft.
+A bed is soft.
+A chair is hard.
+A cup is clean.
+A hat is red.
+A shoe is new.
+An apple is good.
+An egg is small.
+A cake is sweet.
+A train is long.
+A bus is slow.
+A plane is fast.
+A boat is small.
+A phone is new.
+A star is bright.
 `;
 dataEl.value = DEFAULT_CORPUS;
 
