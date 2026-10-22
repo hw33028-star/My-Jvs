@@ -39,23 +39,41 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>Tiny GPT — Train · Save · Load · Generate</h1>
-  <p class="sub">Word-level transformer with autograd, multi-head attention &amp; Adam — 100% vanilla JS. No PyTorch, no server, no libraries.</p>
+  <h1>Tiny GPT — Train · Save · Load · Generate (pls test JAYYUN JAY云☁️</h1>
+  <p class="sub">Word-level transformer with autograd, multi-head attention &amp; Jay — 100% vanilla JS. No PyTorch, no server, no libraries.</p>
 
   <h2>Training sentences (one per line)</h2>
   <textarea id="data" spellcheck="false"></textarea>
 
+  <h2>Grammar generator — review before adding</h2>
+  <div class="row">
+    <button id="genGrammar" class="ghost">🎲 Random Generate 15 With Grammar (not from corpus)</button>
+    <span id="grammarFeedback" style="color:var(--dim);font-size:12px"></span>
+  </div>
+  <div id="grammarList"></div>
+  <div class="row" id="grammarActions" style="display:none;margin-top:4px">
+    <button id="approveGrammar">✓ Add approved to corpus</button>
+    <button id="rejectAll" class="ghost">Reject all</button>
+  </div>
+
+  <div class="row">
+    <label>Prompt <input id="prompt" type="text" placeholder="e.g. a cat" style="flex:1;min-width:200px"></label>
+  </div>
   <div class="row">
     <button id="train">Train</button>
     <button id="stop" class="ghost" disabled>Stop</button>
     <button id="gen" class="ghost" disabled>Generate</button>
-    <button id="save" class="ghost" disabled>💾 Save model.json</button>
+    <button id="save" class="ghost" disabled>💾 Save</button>
+  </div>
+  <div class="row" style="margin-top:-4px">
+    <label>Save as <input id="filename" type="text" value="model.json"
+      placeholder="auto: model-1800.json" style="flex:1;min-width:180px"></label>
   </div>
 
   <div class="row">
-    <label>Steps <input id="steps" type="number" value="3000" min="100" step="100"></label>
+    <label>Steps <input id="steps" type="number" value="1800" min="100" step="100"></label>
     <label>Batch <input id="batch" type="number" value="4" min="1" max="16"></label>
-    <label>Temp <input id="temp" type="range" min="0.1" max="1.5" step="0.05" value="0.7"><span id="tempv">0.70</span></label>
+    <label>Temp <input id="temp" type="range" min="0.1" max="1.5" step="0.05" value="1.10"><span id="tempv">1.10</span></label>
   </div>
   <div class="row" style="margin-top:-4px">
     <span id="stepHint" style="color:var(--dim);font-size:11px;cursor:pointer" title="Click to use this value"></span>
@@ -70,7 +88,12 @@
 
   <div id="status">Ready.</div>
   <canvas id="chart" width="1400" height="260"></canvas>
+  <h2>Samples (edit any that are wrong)</h2>
   <div id="out"></div>
+  <div class="row">
+    <button id="submitCorr" class="ghost" disabled>✓ Submit corrections (fine-tune)</button>
+    <span id="feedback" style="color:var(--dim);font-size:12px"></span>
+  </div>
 
   <p class="help">
     <b>GitHub workflow:</b> Train → Save <code>model.json</code> → commit to your repo →
@@ -138,13 +161,43 @@ function softmax(l){
   const s = sum(e);
   return e.map(v=>v.div(s));
 }
+function sampleFromLogits(logits, temp, topK = 0){
+  let vals = logits.map(t => t.d);
+
+  // Keep only the top-k logits; everything else becomes -Infinity
+  if(topK > 0 && topK < vals.length){
+    const sorted = [...vals].sort((a, b) => b - a);
+    const threshold = sorted[topK - 1];
+    vals = vals.map(v => v >= threshold ? v : -Infinity);
+  }
+
+  const scaled = vals.map(v => v === -Infinity ? -Infinity : v / Math.max(temp, 0.01));
+  const maxV = Math.max(...scaled.filter(v => v > -Infinity));
+  const exps = scaled.map(v => v === -Infinity ? 0 : Math.exp(v - maxV));
+  const sumE = exps.reduce((a, b) => a + b, 0);
+
+  const r = Math.random();
+  let c = 0;
+  for(let i = 0; i < exps.length; i++){
+    c += exps[i] / sumE;
+    if(r < c) return i;
+  }
+  return exps.length - 1;
+}
 function rmsnorm(x){
   const s = mean(x.map(v=>v.pow(2))).add(1e-5).pow(-0.5);
   return x.map(v=>v.mul(s));
 }
+let isTraining = true;
+function dropoutFn(x){
+  const p = CFG.dropout || 0;
+  if(!isTraining || p <= 0) return x;
+  const scale = 1 / (1 - p);
+  return x.map(v => v.mul(Math.random() < p ? 0 : scale));
+}
 
 /* ===================== 3. CONFIG & INIT ===================== */
-const CFG = { nEmbd: 48, nHead: 4, nLayer: 2, blockSize: 16 };
+const CFG = { nEmbd: 32, nHead: 2, nLayer: 1, blockSize: 24, dropout: 0.15 };
 let vocab = null, sd = null, params = null;
 
 const randn = () => { let u=0; while(u===0) u=Math.random();
@@ -202,11 +255,11 @@ function gpt(tokId,pos,keys,vals){
       const w = softmax(logits);
       for(const col of transp(vh)) heads.push(dot(w,col));
     }
-    x = addv(linear(heads, sd.wo[l]), res);
+    x = addv(dropoutFn(linear(heads, sd.wo[l])), res);
     res = x.slice();
     x = rmsnorm(x);
     x = linear(x, sd.fc1[l]).map(t=>t.relu());
-    x = addv(linear(x, sd.fc2[l]), res);
+    x = addv(dropoutFn(linear(x, sd.fc2[l])), res);
   }
   return linear(x, sd.head);
 }
@@ -257,33 +310,53 @@ function trainStep(batch, step, total, opt){
     opt.v[i] = 0.99*opt.v[i] + 0.01*g*g;
     const mh = opt.m[i] / (1 - Math.pow(0.9, step+1));
     const vh = opt.v[i] / (1 - Math.pow(0.99, step+1));
-    p.d -= lr * mh / (Math.sqrt(vh) + 1e-8);
+    p.d -= lr * (mh / (Math.sqrt(vh) + 1e-8) + 0.01 * p.d);
     p.g = 0;
   }
   return loss.d;
 }
 
-/* ===================== 6. GENERATE ===================== */
-function generate(temp){
-  const keys = Array.from({length:CFG.nLayer},()=>[]);
-  const vals = Array.from({length:CFG.nLayer},()=>[]);
-  const out = []; let id = 0;
-  for(let p=0;p<CFG.blockSize;p++){
-    const logits = gpt(id, p, keys, vals);
-    let probs;
-    if(temp <= 0.01){
-      probs = softmax(logits).map(t=>t.d);
-      id = probs.indexOf(Math.max(...probs));
-    } else {
-      probs = softmax(logits.map(t=>t.mul(1/temp))).map(t=>t.d);
-      const r = Math.random(); let c=0; id = probs.length-1;
-      for(let i=0;i<probs.length;i++){ c+=probs[i]; if(r<c){ id=i; break; } }
+function generate(temp, promptText = ''){
+  const prev = isTraining;
+  isTraining = false;
+  try {
+    const keys = Array.from({length:CFG.nLayer},()=>[]);
+    const vals = Array.from({length:CFG.nLayer},()=>[]);
+
+    // Encode prompt tokens (unknown words → <unk>)
+    const promptIds = [];
+    if(promptText && promptText.trim()){
+      for(const w of tokenize(promptText).split(' ').filter(Boolean)){
+        promptIds.push(Object.prototype.hasOwnProperty.call(vocab.stoi, w)
+          ? vocab.stoi[w] : 2);
+      }
     }
-    if(id === 1) break;           // EOS
-    if(id < 3) continue;          // skip BOS/UNK
-    out.push(id);
+
+    // Feed BOS, then each prompt token. `logits` after this loop
+    // predicts the first generated token.
+    let logits = gpt(0, 0, keys, vals);
+    let pos = 1;
+    for(const pid of promptIds){
+      if(pos >= CFG.blockSize) break;
+      logits = gpt(pid, pos, keys, vals);
+      pos++;
+    }
+
+    // Generate
+    const out = [];
+    for(; pos < CFG.blockSize; pos++){
+      const nextId = sampleFromLogits(logits, temp, 40);
+      if(nextId === 1) break;                 // EOS
+      if(nextId >= 3) out.push(nextId);       // skip BOS/UNK
+      if(pos + 1 >= CFG.blockSize) break;
+      logits = gpt(nextId, pos, keys, vals);
+    }
+
+    const generated = out.map(i => vocab.itos[i]).join(' ');
+    return promptText ? (promptText.trim() + ' ' + generated).trim() : generated;
+  } finally {
+    isTraining = prev;
   }
-  return out.map(i=>vocab.itos[i]).join(' ');
 }
 
 /* ===================== 7. TOKENIZER ===================== */
@@ -318,6 +391,7 @@ function exportModel(){
     plain[k] = JSON.parse(JSON.stringify(sd[k], (kk,v)=> v instanceof V ? v.d : v));
   }
   const bundle = {
+    optimizer: opt ? { m: opt.m, v: opt.v } : null,
     version: 2,
     config: { ...CFG, vocabSize: vocab.vocabSize },
     itos: vocab.itos,
@@ -325,17 +399,32 @@ function exportModel(){
     trainedSteps: trainedSteps,
     losses: losses.slice(-200)
   };
+
+  // Filename: user-specified, or auto-generated from trainedSteps
+  let name = (filenameEl.value || '').trim();
+  if(!name || name === 'model.json' || name === 'model'){
+    name = `model-${trainedSteps}`;
+  }
+  // Sanitize: strip path separators / invalid chars, collapse whitespace
+  name = name.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').replace(/\s+/g, '_');
+  if(!/\.json$/i.test(name)) name += '.json';
+
   const blob = new Blob([JSON.stringify(bundle)], { type:'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'model.json';
+  a.download = name;
   a.click();
   URL.revokeObjectURL(a.href);
+
+  // Reflect what was actually saved, in case auto-naming kicked in
+  filenameEl.value = name;
+  statusEl.textContent = `Saved ${name} · ${(blob.size/1024).toFixed(0)} KB`;
 }
 function rebuildV(obj){
   if(Array.isArray(obj)) return obj.map(rebuildV);
   if(typeof obj === 'number') return new V(obj);
-  if(obj && typeof obj === 'object'){           // ← NEW: handle objects
+  if(obj === null || obj === undefined) return new V(0);   // NaN→null from JSON.stringify
+  if(typeof obj === 'object'){
     const out = {};
     for(const k in obj) out[k] = rebuildV(obj[k]);
     return out;
@@ -351,6 +440,8 @@ function importBundle(bundle){
   params = flattenParams(sd, []);
   trainedSteps = bundle.trainedSteps || 0;
   savedLosses  = Array.isArray(bundle.losses) ? bundle.losses.slice(-200) : [];
+  savedOpt = bundle.optimizer || null;
+  opt = null;
   return params.length;
 }
 
@@ -358,1325 +449,1959 @@ function importBundle(bundle){
 const $ = id => document.getElementById(id);
 const dataEl = $('data'), statusEl = $('status'), outEl = $('out'), chart = $('chart');
 const trainBtn = $('train'), stopBtn = $('stop'), genBtn = $('gen'), saveBtn = $('save');
+const submitCorrBtn = $('submitCorr'), feedbackEl = $('feedback');
+const filenameEl = $('filename');
+let filenameTouched = false;
+filenameEl.addEventListener('input', () => { filenameTouched = true; });
 
-const DEFAULT_CORPUS = `A cat is an animal.
-A dog is an animal.
-A bird is an animal.
-A fish is an animal.
-A kitten is a young cat.
-A puppy is a young dog.
-A chick is a young bird.
-A duck is a bird.
-A cow is an animal.
-A horse is an animal.
-A sheep is an animal.
-A goat is an animal.
-A pig is an animal.
-A rabbit is an animal.
-A mouse is a small animal.
-A frog is an animal.
-A bee is an insect.
-A butterfly is an insect.
-An ant is an insect.
-A spider has eight legs.
-Cats have four legs.
-Dogs have four legs.
-Birds have two legs and two wings.
-Fish have fins and gills.
-A cat can run.
-A dog can run.
-A bird can fly.
-A fish can swim.
-A rabbit can hop.
-A horse can run fast.
-A cow gives milk.
-A sheep has wool.
-A bee makes honey.
-A butterfly has wings.
-An ant is small.
-Some cats are big.
-Some cats are small.
-Some dogs are big.
-Some dogs are small.
-Cats can be soft to touch.
-Dogs can be friendly.
-Birds can sing.
-Fish live in water.
-Fish breathe with gills.
-A cat has a tail.
-A dog has a tail.
-A bird has feathers.
-A fish has scales.
-A kitten is small.
-A puppy is small.
-A duck can swim.
-A frog can jump.
-A mouse is small.
-A horse has a long tail.
-A cow has horns.
-A sheep has soft wool.
-A goat can climb.
-A pig is a farm animal.
-A rabbit has long ears.
-A bee has wings.
-A butterfly can be colorful.
-An ant can carry things.
+// Only auto-update if the user hasn't typed in the field.
+// 'suffix' lets fine-tune show e.g. model-1815-ft.json
+function refreshFilenameSuggestion(suffix = ''){
+  if(filenameTouched) return;
+  filenameEl.value = `model-${trainedSteps}${suffix}.json`;
+}
 
-The sun is yellow.
-The sky is blue.
-Grass is green.
-Snow is white.
-Coal is black.
-A banana is yellow.
-An apple can be red.
-An apple can be green.
-An orange is orange.
-A carrot is orange.
-A grape can be purple.
-A rose can be red.
-A leaf is usually green.
-Milk is white.
-The moon is gray.
-A cloud can be white.
-A cloud can be gray.
-A stop sign is red.
-A school bus is yellow.
-A fire truck is red.
-A tree trunk is brown.
-Soil is brown.
-The sea is blue.
-The sky can be gray on a cloudy day.
-A pen can be blue.
-A hat can be red.
-A bag can be black.
-A box can be brown.
-A shoe can be white.
-A bike can be red.
-A car can be gray.
-A flower can be yellow.
-A flower can be purple.
-A bird can be blue.
-A bird can be yellow.
-A cat can be gray.
-A dog can be brown.
-A ball can be red.
-A ball can be yellow.
-A cup can be yellow.
-A book can be purple.
-
-A ball is round.
-A ball can bounce.
-A book has pages.
-A book has a cover.
-A car has wheels.
-A car can move.
-A bike has two wheels.
-A bike can move.
-A tree is a plant.
-A tree has leaves.
-A flower is a plant.
-A flower has petals.
-A house has a roof.
-A house has a door.
-A room has walls.
-A room can have a window.
-A park has trees.
-A park is a place for rest.
-A mat is flat.
-A mat can be soft.
-A bed is for sleeping.
-A bed can be warm.
-A chair is for sitting.
-A chair can be hard.
-A cup is for drinking.
-A cup can hold water.
-A hat is for the head.
-A shoe is for the foot.
-An apple is a fruit.
-An egg is food.
-An egg comes from a bird.
-Cake is a baked food.
-Bread is a baked food.
-Milk is a drink.
-Water is a liquid.
-Tea is a drink.
-Coffee is a drink.
-A table has legs.
-A door can open and close.
-A window lets in light.
-A toy is for play.
-A doll is a toy.
-A box can hold things.
-A bag carries things.
-A key opens a lock.
-A pen is for writing.
-A phone is for calling.
-A watch tells time.
-A clock tells time.
-A spoon is for eating.
-A fork is for eating.
-A plate holds food.
-A bowl holds food.
-A towel is for drying.
-Soap is for washing.
-A brush is for cleaning.
-A comb is for hair.
-A mirror shows a reflection.
-A pencil is for writing.
-A crayon is for drawing.
-A ruler measures length.
-Scissors cut paper.
-Glue sticks things together.
-A lamp gives light.
-A pillow is for sleeping.
-A blanket keeps you warm.
-A broom is for sweeping.
-A basket carries things.
-A bottle holds liquid.
-A jar holds food.
-A kite flies in the wind.
-A drum makes sound.
-A bell makes sound.
-A ladder helps you climb.
-A rope can tie things.
-A needle is used for sewing.
-Thread goes through a needle.
-A button can close a shirt.
-A pocket can hold a key.
-A sock is for the foot.
-A coat keeps you warm.
-A scarf keeps your neck warm.
-A glove is for the hand.
-An umbrella keeps rain off you.
-Rain boots keep feet dry.
-A towel can dry your hands.
-Shampoo is for washing hair.
-A toothbrush is for cleaning teeth.
-Toothpaste is for brushing teeth.
-A sink is for washing.
-A bathtub is for bathing.
-A shower is for washing.
-A fridge keeps food cold.
-A stove is for cooking.
-An oven is for baking.
-A pot is for cooking.
-A pan is for cooking.
-A knife can cut food.
-A glass can hold water.
-A can holds food.
-A bucket can hold water.
-A mop is for cleaning the floor.
-A dustpan helps with sweeping.
-A trash can holds waste.
-A hammer drives nails.
-A nail can hold wood together.
-A screwdriver turns screws.
-A wrench turns bolts.
-Tape can stick paper.
-An eraser removes pencil marks.
-A marker can write on paper.
-Paint can color paper.
-A paintbrush applies paint.
-A canvas is for painting.
-A notebook has pages.
-A folder holds papers.
-An envelope holds a letter.
-A stamp goes on a letter.
-A card can carry a message.
-A map shows places.
-A ticket can be for a bus.
-A wallet can hold money.
-A coin is money.
-A bill can be money.
-A lock can keep a door closed.
-
-A garden has plants.
-A street has houses and roads.
-A beach has sand.
-A school is for learning.
-A store sells things.
-A train runs on tracks.
-A bus carries people.
-A plane flies in the sky.
-A boat travels on water.
-A kitchen is for cooking.
-A bathroom is for washing.
-A bedroom is for sleeping.
-A living room is for sitting.
-A yard is outside a house.
-A market sells food.
-A station is for trains or buses.
-A city is large.
-A town is smaller than a city.
-A village is small.
-A forest has many trees.
-A lake is water surrounded by land.
-A pond is small water.
-A river flows to the sea.
-A mountain is very high.
-The sea is salt water.
-The sky is above us.
-The sun is a star.
-The moon is a natural satellite.
-Stars are in the sky.
-The earth is a planet.
-A cloud is made of water droplets.
-Rain falls from clouds.
-Snow is frozen water.
-Wind moves air.
-Fire is hot.
-Ice is cold.
-A rock is hard.
-Sand is tiny rocks.
-Soil is dirt.
-A road is for cars.
-A bridge goes over water.
-A farm has animals.
-A zoo has animals.
-A library has books.
-A hospital helps sick people.
-A bank keeps money.
-A restaurant serves food.
-A bakery sells bread.
-A park is open space.
-A city has streets.
-A house is a home.
-A home is where people live.
-A school has classrooms.
-A classroom has desks.
-A desk is for writing.
-A playground is for play.
-A garden can have flowers.
-A yard can have a tree.
-A floor is under your feet.
-A ceiling is above your head.
-A wall is vertical.
-A roof covers a house.
-A window is made of glass.
-A door is made of wood or metal.
-A key opens a door.
-A street can be quiet.
-A beach can be warm.
-A forest can be quiet.
-A lake can be deep.
-A pond can be small.
-A river can be long.
-A mountain can be tall.
-A city can be busy.
-A town can be quiet.
-A path can be narrow.
-A sidewalk is for walking.
-A fence can mark a yard.
-A gate can open and close.
-A tunnel goes through a hill.
-An airport is for planes.
-A harbor is for boats.
-A mall has many stores.
-A clinic helps sick people.
-A pharmacy sells medicine.
-A college is for learning.
-A museum shows things.
-A theater shows plays.
-A cinema shows movies.
-A cafe serves drinks.
-A hotel is for travelers.
-A desert is dry.
-An island has water around it.
-A cave is a hollow place.
-A waterfall is falling water.
-A rainbow can appear after rain.
-A storm can bring rain and wind.
-Thunder is loud.
-Lightning is bright.
-Fog makes it hard to see.
-Smoke comes from fire.
-Ash is left after burning.
-Mud is wet soil.
-A branch grows from a tree.
-A root grows under the ground.
-A seed can grow into a plant.
-A petal is part of a flower.
-A vegetable is food.
-Rice is food.
-Pasta is food.
-Cheese is food.
-Soup is food.
-Juice is a drink.
-
-A boy is a young male person.
-A girl is a young female person.
-A man is an adult male person.
-A woman is an adult female person.
-A baby is a very young person.
-A mom is a mother.
-A dad is a father.
-A sister is a female sibling.
-A brother is a male sibling.
-A grandma is a grandmother.
-A grandpa is a grandfather.
-An aunt is a parent's sister.
-An uncle is a parent's brother.
-A cousin is a child of an aunt or uncle.
-A friend is a person you like.
-A family is a group of related people.
-Sam is a name.
-Anna is a name.
-John is a name.
-Mary is a name.
-People can be happy.
-People can be sad.
-People can be tired.
-People can be hungry.
-People can be kind.
-People can be smart.
-People can be funny.
-People can be tall.
-People can be short.
-People can be young.
-People can be old.
-A boy can play.
-A girl can read.
-A man can walk.
-A woman can cook.
-A baby can sleep.
-A baby can cry.
-A baby can smile.
-My mom can cook.
-My dad can clean.
-My sister can draw.
-My brother can run.
-My grandma can bake.
-My grandpa can read.
-My friend can help.
-Sam can read.
-Anna can write.
-Sam and Anna are friends.
-Sam and Anna play together.
-My family eats together.
-My family reads together.
-We help each other.
-We play together.
-We eat together.
-We read together.
-We walk together.
-We sing together.
-We dance together.
-We sleep at night.
-We wake in the morning.
-
-A cat can sit.
-A cat can sleep.
-A cat can eat.
-A cat can drink.
-A dog can sit.
-A dog can run.
-A dog can sleep.
-A dog can eat.
-A dog can drink.
-A bird can sing.
-A bird can fly.
-A bird can eat.
-A fish can swim.
-A fish can eat.
-A boy can run.
-A boy can jump.
-A boy can smile.
-A boy can laugh.
-A boy can read.
-A boy can eat.
-A girl can play.
-A girl can run.
-A girl can jump.
-A girl can smile.
-A girl can laugh.
-A girl can read.
-A girl can eat.
-A man can smile.
-A man can read.
-A man can eat.
-A man can sit.
-A woman can walk.
-A woman can smile.
-A woman can read.
-A woman can sit.
-A baby can eat.
-A baby can drink.
-I can walk.
-I can run.
-I can read.
-I can write.
-I can draw.
-I can sing.
-I can dance.
-I can jump.
-I can swim.
-I can help.
-I can cook.
-I can clean.
-I can open the door.
-I can close the door.
-I can carry the bag.
-I can push the box.
-I can pull the box.
-I can throw the ball.
-I can catch the ball.
-I can build a house with blocks.
-I can fix the toy.
-I can count to ten.
-I can wash my hands.
-I can brush my teeth.
-I can comb my hair.
-I can put on my shoes.
-I can take off my hat.
-I can find the key.
-I can look at the bird.
-I can hear the bell.
-I can smell the flower.
-I can taste the apple.
-I can touch the soft cat.
-
-A cat can sit on a mat.
-A cat can sleep on a bed.
-A cat can sit on a chair.
-A cat can sit on the floor.
-A cat can sit on a table.
-A dog can sit on a mat.
-A dog can sleep on a bed.
-A dog can sit on the floor.
-A bird can sit on a tree.
-A bird can sit on a branch.
-A bird can sit on a roof.
-A bird can sing in a tree.
-A bird can sing in a garden.
-A bird can fly in the sky.
-A fish can swim in water.
-A fish can swim in the sea.
-A fish can swim in a lake.
-A fish can swim in a pond.
-A boy can play in a park.
-A boy can play in a garden.
-A boy can play in a yard.
-A boy can run in a park.
-A girl can play in a park.
-A girl can play in a garden.
-A girl can run in a yard.
-A man can walk in a park.
-A man can walk in a street.
-A woman can walk in a garden.
-A cat can eat in a kitchen.
-A dog can eat in a kitchen.
-A cat can drink in a kitchen.
-A dog can drink in a kitchen.
-A cat can be on a mat.
-A dog can be on a bed.
-A book can be on a table.
-A cup can be on a table.
-A hat can be on a chair.
-A cat can be in a house.
-A dog can be in a room.
-A cat can be under a chair.
-A ball can be under a bed.
-A cat can play with a ball.
-A dog can play with a toy.
-A boy can play with a doll.
-A girl can play with a box.
-A baby can play with a toy.
-A cat and a dog can play.
-A boy and a girl can play.
-A cat and a dog can live in the same home.
-A boy and a girl can be friends.
-A cat can like a toy.
-A dog can like a ball.
-A boy can like a book.
-A girl can like a doll.
-I like my cat.
-I like my dog.
-I like my book.
-I like my ball.
-I like my home.
-I like my school.
-I like my family.
-I like my friend.
-I see my cat.
-I see my dog.
-I see my friend.
-I want my ball.
-I want my book.
-I see the sun.
-I see the moon.
-I see a star.
-I see a house.
-I see a car.
-I see a park.
-
-What is your name?
-My name is Sam.
-My name is Anna.
-My name is John.
-My name is Mary.
-What is your age?
-I am ten years old.
-I am five years old.
-I am eight years old.
-How are you?
-I am fine.
-I am happy.
-I am tired.
-Where do you live?
-I live in a city.
-I live in a town.
-I live in a house.
-What is this?
-This is a book.
-This is a cat.
-This is a ball.
-What is that?
-That is a dog.
-That is a tree.
-That is a car.
-How old are you?
-I am young.
-I am old.
-Who is this?
-This is my friend.
-This is my mom.
-This is my dad.
-Who is that?
-That is my friend.
-That is my cat.
-That is my dog.
-Good morning.
-Good afternoon.
-Good evening.
-Good night.
-Hello.
-Hi.
-Bye.
-See you later.
-See you soon.
-Thank you.
-You are welcome.
-Have a nice day.
-Have a good day.
-Nice to meet you.
-See you tomorrow.
-See you tonight.
-
-A cat has a tail.
-A dog has a tail.
-A bird has feathers.
-A fish has scales.
-A boy has a book.
-A boy has a toy.
-A boy has a ball.
-A girl has a book.
-A girl has a toy.
-A girl has a doll.
-A man has a car.
-A man has a hat.
-A woman has a car.
-A woman has a hat.
-A baby has a toy.
-A baby has a ball.
-A boy has a bike.
-A girl has a bike.
-Sam has a cat.
-Sam has a dog.
-Anna has a cat.
-Anna has a dog.
-My cat has soft fur.
-My dog has soft fur.
-My toy is new.
-My book is good.
-My car is red.
-My home is warm.
-My school is new.
-My mom is kind.
-My dad is kind.
-My friend is smart.
-The cat has a ball.
-The dog has a bone.
-The girl has a doll.
-The boy has a red ball.
-The girl has a blue hat.
-
-I walk in the park.
-I walk in the garden.
-I walk in the street.
-I run in the park.
-I run in the yard.
-I play in the park.
-I play in the garden.
-I sleep in a bed.
-I sleep in a room.
-I read in a room.
-I read in a park.
-I eat in a kitchen.
-I eat at home.
-I drink milk.
-I drink tea.
-I eat an apple.
-I eat bread.
-I eat cake.
-I like apples.
-I like milk.
-I like water.
-I like bread.
-We go to the park.
-We go to the store.
-We go to school.
-We go to the beach.
-We go to the garden.
-We go home.
-We go to the city.
-We go to the lake.
-We go to the pond.
-We go to the sea.
-We go to the market.
-We go to the forest.
-We go to the station.
-We play in the park.
-We play in the garden.
-We play in the yard.
-We eat in the kitchen.
-We read in the room.
-We walk in the street.
-We run in the garden.
-We drink tea.
-We like the cat.
-We like the dog.
-We like flowers.
-We see the moon.
-We see a star.
-We see the sun.
-
-A star is bright.
-The sun is bright.
-The moon is bright.
-The lamp is bright.
-The light is bright.
-The screen is bright.
-The sky is bright on a clear day.
-The room is bright in the morning.
-A bright star is in the sky.
-Lightning is bright.
-A flashlight is bright.
-A candle flame is bright.
-A diamond can look bright.
-A white wall can look bright in the sun.
-
-An apple can be red.
-A rose can be red.
-A stop sign is red.
-A fire truck is red.
-A hat can be red.
-A ball can be red.
-A car can be red.
-A bike can be red.
-A cup can be red.
-A flower can be red.
-A red apple is on the table.
-A red ball is on the floor.
-A red car is in the street.
-
-The sky is blue.
-The sea is blue.
-A pen can be blue.
-A bird can be blue.
-A shirt can be blue.
-A car can be blue.
-The lake looks blue on a clear day.
-A cup can be blue.
-A blue bird is on the branch.
-A blue book is on the desk.
-
-Grass is green.
-A leaf is usually green.
-A tree can be green.
-The garden is green.
-A frog can be green.
-An apple can be green.
-A shirt can be green.
-A park is green.
-A green leaf is on the ground.
-A green ball is in the box.
-
-The sun is yellow.
-A banana is yellow.
-A school bus is yellow.
-A flower can be yellow.
-A ball can be yellow.
-A hat can be yellow.
-A cup can be yellow.
-A bird can be yellow.
-A yellow flower is in the garden.
-A yellow car is in the street.
-
-Some dogs are big.
-Some cats are big.
-A house can be big.
-A tree can be big.
-The sun is big.
-The sky is big.
-A bus can be big.
-A box can be big.
-A park can be big.
-A room can be big.
-A big dog can run in the yard.
-A big tree is in the park.
-
-A mouse is small.
-A key is small.
-A cup can be small.
-A bird can be small.
-A star looks small.
-A baby is small.
-A toy can be small.
-A box can be small.
-A pond can be small.
-A village is small.
-A small key is on the table.
-A small bird is in the tree.
-
-A cat's fur can be soft.
-A blanket can be soft.
-A pillow can be soft.
-A toy can be soft.
-Bread can be soft.
-A mat can be soft.
-A bed can be soft.
-Cotton is soft.
-A towel can be soft.
-A flower petal can be soft.
-A soft blanket is on the bed.
-A soft pillow is on the chair.
-
-A rock is hard.
-A chair can be hard.
-A table is hard.
-A door can be hard.
-A box can be hard.
-A shell can be hard.
-A nut can be hard.
-A floor can be hard.
-A wall is hard.
-A metal cup can be hard.
-A hard floor is under your feet.
-A hard table is in the room.
-
-A car can be fast.
-A train can be fast.
-A plane is fast.
-A bike can be fast.
-A dog can run fast.
-A horse can run fast.
-A fish can be fast.
-A runner can be fast.
-A bus can be fast on a highway.
-A boat can be fast.
-A fast train is on the track.
-A fast car is on the road.
-
-A turtle is slow.
-A snail is slow.
-A bus can be slow.
-A train can be slow.
-A heavy truck can be slow.
-A boat can be slow.
-A clock can be slow.
-A computer can be slow.
-A walk can be slow.
-A river can be slow.
-A slow bus is on the street.
-A slow clock is on the wall.
-
-A phone can be new.
-A book can be new.
-A toy can be new.
-A bike can be new.
-A car can be new.
-A shoe can be new.
-A house can be new.
-A school can be new.
-A bag can be new.
-A pen can be new.
-A new book is on the table.
-A new phone is in the bag.
-
-A book can be old.
-A car can be old.
-A house can be old.
-A chair can be old.
-A watch can be old.
-A key can be old.
-A shoe can be old.
-A tree can be old.
-A door can be old.
-A coin can be old.
-An old chair is in the room.
-An old tree is in the yard.
-
-The room is clean.
-The cup is clean.
-The table is clean.
-The window is clean.
-The street is clean.
-Hands can be clean.
-Water can be clean.
-A shirt can be clean.
-A floor can be clean.
-A car can be clean.
-A clean cup is on the table.
-A clean window lets in light.
-
-The bed can be warm.
-The room can be warm.
-The tea can be warm.
-The bread can be warm.
-The sun makes the beach warm.
-A coat keeps you warm.
-A blanket keeps you warm.
-The water can be warm.
-A house can be warm.
-A cup can be warm.
-A warm blanket is on the bed.
-A warm room is in the house.
-
-Milk can be cold.
-Water can be cold.
-Ice is cold.
-Snow is cold.
-The sea can be cold.
-The air can be cold.
-A drink can be cold.
-A room can be cold.
-The morning can be cold.
-A metal chair can be cold.
-Cold milk is in the cup.
-Cold water is in the bottle.
-
-The sun is hot.
-Tea can be hot.
-Coffee can be hot.
-Soup can be hot.
-Fire is hot.
-The sand can be hot.
-The water can be hot.
-A stove is hot.
-A day can be hot.
-A cup can be hot.
-Hot soup is in the bowl.
-Hot tea is in the cup.
-
-A library is quiet.
-A pond can be quiet.
-A street can be quiet.
-A room can be quiet.
-A park can be quiet.
-A fish can be quiet.
-A mouse can be quiet.
-The night can be quiet.
-A school can be quiet.
-A garden can be quiet.
-A quiet room is in the house.
-A quiet street is in the town.
-
-A drum can be loud.
-A bell can be loud.
-A plane can be loud.
-A train can be loud.
-A dog can be loud.
-A bird can be loud.
-Music can be loud.
-A truck can be loud.
-A crowd can be loud.
-Thunder is loud.
-A loud bell is near the door.
-A loud train is on the track.
-
-A flower can be pretty.
-A bird can be pretty.
-A doll can be pretty.
-A garden can be pretty.
-The beach can be pretty.
-A dress can be pretty.
-A picture can be pretty.
-A butterfly can be pretty.
-A sunset can be pretty.
-A rainbow can be pretty.
-A pretty flower is in the garden.
-A pretty picture is on the wall.
-
-A book can be good.
-An apple can be good.
-Cake can be good.
-Bread can be good.
-Tea can be good.
-A friend can be good.
-A day can be good.
-A plan can be good.
-A song can be good.
-A school can be good.
-A good book is on the desk.
-A good apple is in the basket.
-
-A dog can be kind.
-A friend can be kind.
-My mom is kind.
-My dad is kind.
-A teacher can be kind.
-A neighbor can be kind.
-A nurse can be kind.
-A person can be kind.
-My grandma is kind.
-My grandpa is kind.
-A kind friend helps you.
-A kind person helps others.
-
-A boy can be happy.
-A girl can be happy.
-A baby can be happy.
-My mom can be happy.
-My dad can be happy.
-A friend can be happy.
-People can be happy.
-A dog can look happy.
-A smile can show a happy face.
-A song can make you happy.
-A happy child can laugh.
-A happy dog can wag its tail.
-
-A boy can be sad.
-A girl can be sad.
-A baby can be sad.
-People can be sad.
-A friend can be sad.
-A sad face can show sadness.
-A rainy day can make some people sad.
-A sad story can make you sad.
-A lost toy can make a child sad.
-A goodbye can make you sad.
-A sad movie can make people cry.
-A sad song can sound slow.
-
-A baby can be tired.
-My mom can be tired.
-My dad can be tired.
-A runner can be tired.
-A worker can be tired.
-People can be tired after work.
-A dog can be tired after play.
-I can be tired at night.
-A student can be tired after school.
-A traveler can be tired.
-A tired worker can rest.
-A tired dog can sleep.
-
-A baby can be hungry.
-A boy can be hungry.
-A girl can be hungry.
-A dog can be hungry.
-People can be hungry before a meal.
-I can be hungry in the morning.
-A cat can be hungry.
-A bird can be hungry.
-A worker can be hungry at lunch.
-A student can be hungry after school.
-A hungry baby can cry.
-A hungry dog can wait for food.
-
-A tree can be tall.
-A man can be tall.
-A woman can be tall.
-A building can be tall.
-A mountain is tall.
-A giraffe is tall.
-A tower can be tall.
-A boy can be tall.
-A girl can be tall.
-A flower can grow tall.
-A tall tree is in the park.
-A tall building is in the city.
-
-A pen can be short.
-A book can be short.
-A boy can be short.
-A girl can be short.
-A man can be short.
-A woman can be short.
-A line can be short.
-A street can be short.
-A story can be short.
-A table can be short.
-A short line is on the paper.
-A short street is near the park.
-
-A train can be long.
-A street can be long.
-A river can be long.
-A snake can be long.
-A line can be long.
-A story can be long.
-A table can be long.
-A road can be long.
-A bridge can be long.
-A day can feel long.
-A long train is on the track.
-A long river flows to the sea.
-
-A ball is round.
-The moon can look round.
-A plate can be round.
-A wheel is round.
-An orange is round.
-A coin can be round.
-A clock can be round.
-A bowl can be round.
-A table can be round.
-A stone can be round.
-A round ball is on the floor.
-A round plate is on the table.
-
-A cup can be full.
-A box can be full.
-A bag can be full.
-A store can be full of things.
-A room can be full of people.
-A basket can be full.
-A jar can be full.
-A bus can be full.
-A plate can be full.
-A tank can be full.
-A full cup is on the table.
-A full basket is in the kitchen.
-
-A box can be empty.
-A cup can be empty.
-A room can be empty.
-A bag can be empty.
-A bottle can be empty.
-A street can be empty.
-A plate can be empty.
-A jar can be empty.
-A bus can be empty.
-A house can be empty.
-An empty box is on the floor.
-An empty cup is on the table.
-
-The room can be dark.
-The night is dark.
-The coffee is dark.
-A cave can be dark.
-A street can be dark at night.
-The sky can be dark at night.
-A closet can be dark.
-A forest can be dark at night.
-A movie theater can be dark.
-A box can be dark inside.
-A dark room needs a light.
-A dark sky can bring rain.
-
-The sea can be deep.
-A lake can be deep.
-A river can be deep.
-A pond can be deep.
-A well can be deep.
-A hole can be deep.
-A pool can be deep.
-The ocean is deep.
-A cave can be deep.
-A voice can be deep.
-A deep lake is in the park.
-A deep well is near the house.
-
-An apple can be sweet.
-Cake can be sweet.
-Honey is sweet.
-Sugar is sweet.
-A peach can be sweet.
-A mango can be sweet.
-A drink can be sweet.
-A candy is sweet.
-A berry can be sweet.
-A melon can be sweet.
-A sweet apple is in the basket.
-A sweet cake is on the plate.
-
-A kitten can play with a ball.
-A puppy can run in a yard.
-A chick can stay near a hen.
-A duck can swim in a pond.
-A cow can eat grass.
-A horse can run in a field.
-A sheep can eat grass.
-A goat can climb a hill.
-A pig can live on a farm.
-A rabbit can hop in a garden.
-A mouse can hide in a box.
-A frog can jump into a pond.
-A bee can fly to a flower.
-A butterfly can rest on a leaf.
-An ant can carry a crumb.
-A spider can make a web.
-
-A spoon can hold soup.
-A fork can hold food.
-A plate can hold an apple.
-A bowl can hold rice.
-A towel can dry hands.
-Soap can clean hands.
-A brush can clean shoes.
-A comb can fix hair.
-A mirror can show your face.
-A pencil can write a word.
-A crayon can draw a sun.
-A ruler can measure a line.
-Scissors can cut paper.
-Glue can join paper.
-A lamp can light a room.
-A pillow can rest your head.
-A blanket can keep you warm.
-A broom can sweep the floor.
-A basket can hold fruit.
-A bottle can hold water.
-A jar can hold jam.
-A kite can fly in the wind.
-A drum can make a loud sound.
-A bell can make a clear sound.
-
-My sister can help my mom.
-My brother can help my dad.
-My grandma can bake bread.
-My grandpa can read a book.
-My aunt can visit us.
-My uncle can drive a car.
-My cousin can play with me.
-A black cat can sit on a mat.
-A white bird can fly in the sky.
-A gray cloud can bring rain.
-A pink flower can grow in a garden.
-An orange carrot can grow in soil.
-A pink hat can be on a chair.
-A black bag can be on the floor.
-A white cup can be on a table.
-A gray car can be in the street.
-A brown dog can run in a yard.
-
-I listen to the bird.
-I help my friend.
-I cook an egg.
-I clean the table.
-I draw a cat.
-I open the box.
-I close the door.
-I wait for the bus.
-I wash my cup.
-I carry the bag.
-I push the box.
-I pull the door.
-I throw the ball.
-I catch the ball.
-I build a tower with blocks.
-I fix my toy.
-I count the apples.
-I buy bread at the store.
-I give the book to my friend.
-I take the cup.
-I put the pen on the table.
-I find the key.
-I look at the moon.
-I hear the train.
-I smell the bread.
-I taste the cake.
-I touch the soft blanket.
-
-We go to the market in the morning.
-We go to the park in the afternoon.
-We eat dinner in the evening.
-We sleep at night.
-The kitchen is in the house.
-The bathroom is in the house.
-The bedroom is in the house.
-The living room is in the house.
-The yard is near the house.
-The market is in the town.
-The station is in the city.
-The village is near the forest.
-The lake is near the mountain.
-The pond is in the garden.
-The river is near the town.
-The beach is near the sea.
-The forest has many trees.
-The mountain is tall.
-The city is busy.
-The town is quiet.
-The village is small.
-The lake is deep.
-The pond is small.
-The river is long.
-The beach is warm.
-The sea is blue.
-The sky is bright.
-The sun is hot.
-The moon is bright.
-The star is small.
-The flower is pretty.
-The garden is green.
-The street is long.
-The school is big.
-The store is full.
-The train is long.
-The bus is slow.
-The plane is fast.
-The boat is small.
-The phone is new.
-The watch is old.
-The tea is hot.
-The coffee is dark.
-The table is clean.
-The door is old.
-The window is clean.
-The toy is soft.
-The doll is pretty.
-The box is empty.
-The bag is small.
-The key is old.
-The pen is blue.
-
-A cat is small.
-A dog is big.
-A bird is pretty.
-A fish is quiet.
-A ball is round.
-A book is good.
-A car is fast.
-A bike is new.
-A tree is tall.
-A flower is red.
-A house is new.
-A room is warm.
-A mat is soft.
-A bed is soft.
-A chair is hard.
-A cup is clean.
-A hat is red.
-A shoe is new.
-An apple is good.
-An egg is small.
-A cake is sweet.
-A train is long.
-A bus is slow.
-A plane is fast.
-A boat is small.
-A phone is new.
-A star is bright.
+const DEFAULT_CORPUS = `The cat sleeps on the soft chair.
+A dog runs across the wide yard.
+Birds sing early in the morning.
+The fish swims in the clear pond.
+My kitten plays with a ball of yarn.
+The puppy jumps at the falling leaves.
+A horse gallops through the open field.
+The old dog naps by the warm fire.
+Baby birds chirp in the tall tree.
+The rabbit hops into the green garden.
+I wake up early every single day.
+She drinks coffee before work starts.
+He reads the news each morning.
+We eat dinner at six o'clock.
+The children play outside after school.
+My mother bakes bread on Sundays.
+They walk to the park together.
+I brush my teeth twice daily.
+The alarm rings at seven sharp.
+We watch a movie every Friday.
+The soup smells delicious today.
+She cuts the bread into thin slices.
+I love fresh fruit in summer.
+The cake tastes sweet and rich.
+He makes eggs for breakfast.
+We share a pizza on weekends.
+The rice cooks for twenty minutes.
+My sister drinks milk with dinner.
+They order noodles from the shop.
+The chef prepares a simple meal.
+The sun rises over the quiet hills.
+Rain falls softly on the roof.
+The wind blows through the trees.
+Snow covers the silent streets.
+A rainbow appears after the storm.
+The moon shines bright tonight.
+Leaves fall gently to the ground.
+The river flows toward the sea.
+Stars twinkle in the dark sky.
+Clouds drift slowly overhead.
+We live in a small town.
+The library opens at nine.
+I visit the market every week.
+She works at the local school.
+The museum has many old paintings.
+They walk through the busy city.
+The cafe serves fresh coffee daily.
+We meet at the train station.
+The hospital is near the park.
+I park my car on the quiet street.
+I study for the exam tonight.
+She writes a letter to her friend.
+He teaches math at the high school.
+We finish the project on time.
+The students ask many questions.
+My boss called a meeting yesterday.
+She types quickly on her keyboard.
+I need to buy new notebooks.
+The class starts at eight sharp.
+They work from home on Mondays.
+My father tells funny stories.
+She has a warm and friendly smile.
+The old man walks his small dog.
+My friend lives across the street.
+He always helps his neighbors.
+The baby sleeps in the wooden crib.
+My grandmother knits wool sweaters.
+She visits her parents on Sundays.
+He plays the guitar very well.
+They welcome every guest warmly.
+I feel happy and peaceful today.
+She looks tired after a long day.
+He seems worried about the news.
+They are excited for the trip.
+The children feel safe here.
+I am proud of my hard work.
+She feels calm by the quiet sea.
+He is nervous about the test.
+We feel grateful for your help.
+They seem relaxed on vacation.
+Winter is very cold in this city.
+Summer arrives in early June.
+The morning air feels fresh.
+Evening brings cooler winds.
+The day passes very quickly.
+Autumn leaves turn golden brown.
+Spring brings new flowers everywhere.
+Night falls quietly over the town.
+Dawn breaks behind the tall mountains.
+The weekend starts tomorrow morning.
+The book sits on the wooden shelf.
+My phone needs a fresh charge.
+The chair is made of solid wood.
+She bought a new red bag.
+The keys are on the kitchen table.
+He carries a black umbrella everywhere.
+The clock ticks loudly tonight.
+I wear my favorite blue hat.
+The mirror hangs on the white wall.
+A lamp lights the small room.
+The boy runs to catch the yellow bus.
+The girl sings a cheerful little song.
+My father reads the newspaper every morning.
+The teacher explains the lesson clearly.
+We clean the kitchen after dinner.
+She waters the plants every evening.
+The cat drinks milk from a bowl.
+The dog barks at the passing truck.
+A bird builds a nest in the tree.
+The children laugh at the funny joke.
+I open the window for fresh air.
+She folds the clothes neatly.
+The neighbors greet us every morning.
+A small car parks in the driveway.
+The postman delivers letters before noon.
+My sister paints a colorful picture.
+The grandmother tells a bedtime story.
+They eat lunch in the small kitchen.
+The farmer feeds the hungry chickens.
+A bee flies from flower to flower.
+The rain stops before the game begins.
+She ties her shoes tightly.
+The student raises his hand.
+We pack our bags for the trip.
+The coffee smells fresh and warm.
+He fixes the broken wooden chair.
+The children count the bright stars.
+I finish the work by noon.
+A quiet breeze moves the curtains.
+The phone rings in the next room.
+She writes the address carefully.
+The dog fetches the red ball.
+The cat watches the small bird.
+My brother rides his bike downtown.
+We listen to the radio together.
+The teacher smiles at the class.
+They build a sandcastle on the beach.
+The woman buys fresh fruit at the market.
+A young man reads on the bench.
+The man walks his dog each evening.
+The students study in the quiet library.
+I pick up the fallen leaves.
+The doctor checks the small child.
+She paints the wall light blue.
+The plane lands on the long runway.
+The boat sails across the calm water.
+The mother hugs her young son.
+A child waves from the yellow bus.
+The cat stretches in the warm sun.
+The woman opens the red umbrella.
+The boy throws the ball to his friend.
+The girl draws a smiling sun.
+The father cooks dinner for the family.
+The clock strikes twelve at noon.
+The children race to the front door.
+A bird lands on the wooden fence.
+The wind shakes the autumn leaves.
+The neighbor waters the small garden.
+The shop closes at nine tonight.
+The police officer helps the lost child.
+The nurse speaks to the worried mother.
+The writer types the final page.
+The singer performs on the small stage.
+The dancer moves across the wooden floor.
+The worker fixes the leaking roof.
+The driver waits at the red light.
+The sailor ties the heavy rope.
+The farmer collects the fresh eggs.
+The baker shapes the soft dough.
+The painter mixes the bright colors.
+The pilot checks the plane carefully.
+The chef tastes the hot soup.
+The gardener plants the small seeds.
+The mother rocks the baby gently.
+The father reads a bedtime story.
+The children gather around the fireplace.
+The grandmother serves warm milk.
+The grandpa tells stories about the past.
+We go to the beach in July.
+She visits the museum on Fridays.
+The boy flies a red kite.
+The girl skips across the meadow.
+The cat curls up in a basket.
+A dog wags its tail excitedly.
+The bird sings from the highest branch.
+The sun warms the sandy beach.
+The leaves change color in autumn.
+The river winds through the valley.
+Stars shine brightly in the night sky.
+The moon glows behind thin clouds.
+A cool wind brushes my face.
+The rain taps on the window pane.
+Snowflakes drift slowly to the earth.
+The garden smells of fresh flowers.
+The bakery sells warm bread.
+We walk along the quiet path.
+They swim in the cool lake.
+He reads a long novel each week.
+I paint the old wooden fence.
+She cleans the dusty windows.
+The dog chases the flying leaves.
+The cat climbs the tall tree.
+My father waters the front lawn.
+The mother cooks rice and vegetables.
+The boy builds a small model plane.
+The girl collects colorful stones.
+The bird builds a small nest.
+The children play hide and seek.
+The baby laughs at the funny face.
+The old couple walks hand in hand.
+The family eats dinner at sunset.
+The friends share a simple meal.
+The dog sleeps under the warm blanket.
+The kitten follows the moving string.
+The parrot repeats every word.
+The horse eats fresh grass.
+The cow gives milk every morning.
+The chicken pecks at the seeds.
+The duck swims across the pond.
+The frog jumps into the water.
+The mouse hides behind the box.
+The rabbit eats the sweet carrot.
+The fox runs into the dark forest.
+The owl hoots at midnight.
+The wolf howls at the moon.
+The bear sleeps through the winter.
+The lion rests under the tree.
+The elephant drinks from the river.
+The monkey climbs the highest branch.
+The tiger walks through the tall grass.
+The snake slides through the fallen leaves.
+The spider spins a careful web.
+The ant carries a large crumb.
+The butterfly lands on a pink flower.
+The bee collects nectar all day.
+The whale swims deep in the ocean.
+The dolphin leaps out of the water.
+The turtle walks slowly across the sand.
+The penguin waddles toward the sea.
+The eagle circles high above.
+The sparrow chirps on the windowsill.
+I drink a cup of tea.
+She reads a book before bed.
+He works hard every single day.
+We visit our grandparents often.
+They travel by train in summer.
+My mother cooks dinner every night.
+The teacher marks the exam papers.
+The doctor examines the sick patient.
+The nurse brings fresh water.
+The lawyer reads the long contract.
+The engineer draws the building plans.
+The artist paints a large canvas.
+The musician plays the quiet piano.
+The actress speaks on the stage.
+The writer finishes the last chapter.
+The farmer wakes up very early.
+The fisherman casts his heavy net.
+The mechanic fixes the old engine.
+The barber cuts the boy's hair.
+The tailor sews a warm coat.
+The plumber repairs the broken pipe.
+The waiter brings the hot food.
+The cashier counts the fresh bills.
+The guard checks every visitor.
+The driver parks the long car.
+The children sing in the school choir.
+The students clean the classroom.
+The teacher writes on the blackboard.
+The principal speaks at the assembly.
+The librarian shelves the new books.
+The coach trains the young team.
+The team wins the close game.
+The crowd cheers loudly.
+The referee blows the whistle.
+The players shake hands.
+The sun sets behind the hills.
+The moon rises over the sea.
+The stars appear one by one.
+The sky turns from blue to gray.
+The wind carries the autumn leaves.
+The rain stops before noon.
+The snow begins to fall gently.
+The fog covers the small village.
+The ice melts in the warm sun.
+The river freezes every winter.
+The birds fly south for winter.
+The bears prepare for hibernation.
+The flowers bloom in early spring.
+The trees grow new green leaves.
+The garden looks beautiful today.
+The pond reflects the bright sky.
+I feel tired after this long walk.
+She looks happy in the photo.
+He seems worried about his friend.
+They feel cold in the winter wind.
+We feel warm by the crackling fire.
+The dog looks tired after his run.
+The cat looks comfortable in her basket.
+The baby looks peaceful when sleeping.
+The old man feels grateful for his family.
+The young girl feels excited about school.
+I want to learn a new language.
+She wants to visit many countries.
+He wants to build a small house.
+We want to help our neighbors.
+They want to save the old forest.
+The child wants a new bicycle.
+The dog wants to play in the park.
+The cat wants a soft place to sleep.
+My mother wants us to eat together.
+My father wants everyone to be happy.
+The apple is red and juicy.
+The banana is long and yellow.
+The orange is round and sweet.
+The grapes are small and purple.
+The bread is fresh and warm.
+The cake is soft and sweet.
+The milk is cold and white.
+The honey is thick and golden.
+The cheese is hard and sharp.
+The soup is warm and tasty.
+The tea is hot and fragrant.
+The coffee is dark and strong.
+The water is clear and cool.
+The juice is fresh and sweet.
+The rice is soft and fluffy.
+The meat is tender and well cooked.
+The vegetables are bright and crisp.
+The fruit is ripe and delicious.
+The salt is fine and white.
+The pepper is hot and spicy.
+The bottle is full of clean water.
+The box is full of old letters.
+The bag carries many heavy books.
+The basket holds fresh red apples.
+The jar contains sweet golden honey.
+The cup is full of warm tea.
+The plate holds a simple meal.
+The bowl is full of hot soup.
+The pan cooks the fresh fish.
+The pot holds the boiling rice.
+The knife cuts the ripe fruit.
+The fork lifts the small potato.
+The spoon stirs the warm soup.
+The towel dries the wet hands.
+The soap cleans the dirty plate.
+The brush sweeps the wooden floor.
+The broom cleans the dusty corner.
+The mop washes the kitchen floor.
+The trash can holds the old paper.
+The key opens the front door.
+The lock keeps the gate closed.
+The wallet holds a few coins.
+The coin buys a small candy.
+The map shows the long road.
+The ticket lets us ride the bus.
+The letter arrives in the morning.
+The stamp goes on the envelope.
+The pen writes in blue ink.
+The pencil draws a careful line.
+The ruler measures the short line.
+The eraser removes the small mistake.
+The scissors cut the red paper.
+The glue holds the pieces together.
+The tape sticks the poster to the wall.
+The notebook holds many pages.
+The folder keeps the papers safe.
+The envelope carries a kind letter.
+The card says happy birthday.
+The book tells an exciting story.
+The magazine has many colorful photos.
+The newspaper reports the daily news.
+The picture hangs on the white wall.
+The mirror shows a clear reflection.
+The lamp lights the entire room.
+The candle burns slowly tonight.
+The flashlight helps us in the dark.
+The clock ticks on the kitchen wall.
+The watch shows the exact time.
+The phone rings in the hall.
+The radio plays quiet music.
+The television shows a funny movie.
+The computer sits on the wooden desk.
+The keyboard clicks as I type.
+The screen shows a bright picture.
+The printer makes a soft sound.
+The camera takes clear photos.
+The picture frame holds an old photo.
+The toy train runs on the tracks.
+The doll wears a small dress.
+The puzzle has many small pieces.
+The game takes an hour to finish.
+The ball bounces across the yard.
+The kite flies high in the wind.
+The bike leans against the wall.
+The car parks in the driveway.
+The truck carries heavy boxes.
+The bus stops at every corner.
+The train travels through the night.
+The plane flies above the clouds.
+The boat rocks gently on the waves.
+The ship sails across the wide sea.
+The sun lights the entire valley.
+The rain waters every green plant.
+The wind blows the white curtains.
+The snow covers every quiet street.
+The morning air smells fresh and clean.
+The evening sky turns pink and gold.
+The old house stands by the road.
+The small cottage has a red roof.
+The tall building has many windows.
+The quiet street leads to the park.
+The busy market sells fresh food.
+The small school sits on the hill.
+The local store opens at seven.
+The friendly cafe serves hot drinks.
+The old library has many shelves.
+The new hospital helps many people.
+The wide bridge crosses the river.
+The narrow path leads through the woods.
+The deep lake holds many fish.
+The tall mountain touches the clouds.
+The dry desert stretches for miles.
+The green forest is home to many animals.
+The sandy beach attracts many visitors.
+The small island sits in the ocean.
+The quiet garden has a wooden bench.
+The open field lies beyond the fence.
+The old tree shades the quiet yard.
+The little bird builds a small nest.
+The young boy helps his mother.
+The kind girl shares her lunch.
+The friendly neighbor smiles at everyone.
+The tired traveler rests on the bench.
+The happy child laughs at the game.
+The sad woman reads an old letter.
+The quiet student studies in the corner.
+The busy worker finishes the task.
+The patient doctor speaks calmly.
+The curious child asks many questions.
+The careful driver checks the road.
+The brave firefighter enters the building.
+The strong swimmer reaches the shore.
+The fast runner wins the race.
+The tall player scores a goal.
+The clever student answers the question.
+The gentle mother holds her baby.
+The loving father hugs his children.
+The wise grandmother tells an old story.
+The kind grandpa gives good advice.
+The young couple walks along the beach.
+The happy family shares a warm meal.
+The old friends laugh at old memories.
+The new neighbors greet everyone warmly.
+The friendly waiter brings our food.
+The busy chef prepares many dishes.
+The careful mechanic checks the engine.
+The kind nurse helps the patient.
+The patient teacher explains the lesson again.
+The young singer performs on stage.
+The quiet writer works in the corner.
+The proud parents watch their child.
+The little girl wears a bright red dress.
+The young boy carries a heavy bag.
+The old man reads the daily paper.
+The cheerful woman greets her friends.
+The friendly postman delivers the mail.
+The helpful neighbor carries the bag.
+The tired farmer walks home at dusk.
+The patient gardener tends the roses.
+The brave sailor faces the storm.
+The clever fox avoids the trap.
+The playful puppy chases his tail.
+The lazy cat naps in the sun.
+The hungry dog waits by his bowl.
+The curious kitten climbs the shelf.
+The gentle horse stands by the fence.
+The busy bee flies between flowers.
+The bright sun warms my face.
+The cold wind bites my hands.
+The soft rain falls on the roof.
+The loud thunder shakes the windows.
+The bright lightning lights the sky.
+The deep snow covers the fields.
+The thick fog hides the houses.
+The clear sky shows the stars.
+The warm sun melts the ice.
+The cool evening brings relief.
+The busy city never sleeps.
+The quiet village sleeps early.
+The tall trees sway in the wind.
+The bright flowers bloom in spring.
+The green grass grows in the yard.
+The brown leaves fall in autumn.
+The white snow covers the roof.
+The blue sky stretches above us.
+The gray clouds gather overhead.
+The fresh air fills my lungs.
+My mother makes the best soup.
+My father fixes everything in our house.
+My sister plays the violin beautifully.
+My brother studies at the university.
+My grandmother knits warm winter sweaters.
+My grandfather tells stories from the war.
+My aunt visits us every summer.
+My uncle works at a big company.
+My cousin lives in another country.
+My best friend knows all my secrets.
+She reads three books every month.
+He wakes up before the sun rises.
+They walk through the park every evening.
+We clean the house on Saturday mornings.
+I cook a simple dinner for my family.
+The children run to the front door excitedly.
+The dog barks at every passing car.
+The cat sleeps on the highest shelf.
+The bird sings from the highest branch.
+The sun shines through the kitchen window.
+The rain taps softly on the glass.
+The snow covers every tree in the yard.
+The wind blows the fallen leaves across the road.
+The river runs quietly through the valley.
+The moon glows softly behind the clouds.
+The stars sparkle in the clear night sky.
+The fire crackles in the old fireplace.
+The kettle whistles on the hot stove.
+The bread bakes slowly in the oven.
+The coffee brews in the small kitchen.
+The milk warms in the old pan.
+The eggs cook in the hot butter.
+The pancakes flip in the wide pan.
+The bacon sizzles in the cast iron skillet.
+The toast browns in the small toaster.
+The fruit ripens slowly on the counter.
+The soup simmers gently on the stove.
+The vegetables roast in the hot oven.
+The pie cools on the kitchen windowsill.
+The tea steeps in the ceramic pot.
+The lemonade chills in the glass pitcher.
+The cake rises in the warm oven.
+The cookies bake on the metal tray.
+The icing sets on the sweet cake.
+The butter melts on the warm bread.
+I want to sit by the warm fire.
+She wants to walk along the quiet beach.
+He wants to read a long novel.
+We want to visit our old friends.
+They want to build a small garden.
+The child wants to play with the puppy.
+The dog wants to run in the open field.
+The cat wants to sleep in the sun.
+The bird wants to fly in the clear sky.
+The fish wants to swim in the deep water.
+The sun rises above the tall buildings.
+The moon sinks below the dark horizon.
+The stars fade as the morning breaks.
+The clouds gather before the rain falls.
+The wind shifts before the storm arrives.
+The rain falls throughout the entire night.
+The snow piles up against the wooden fence.
+The fog lingers until the sun appears.
+The ice cracks under the winter sun.
+The dew glistens on the morning grass.
+The farmer works from dawn until dusk.
+The fisherman rows against the strong tide.
+The hunter waits quietly in the bushes.
+The shepherd guides his flock down the hill.
+The miner digs deep into the mountain.
+The builder raises the heavy wooden beams.
+The baker rises long before the sun.
+The butcher cuts the fresh meat carefully.
+The tailor sews a fine winter coat.
+The blacksmith shapes the hot iron.
+The potter spins the clay wheel slowly.
+The painter mixes colors on the wooden palette.
+The sculptor carves the smooth white stone.
+The musician practices in the quiet room.
+The dancer rehearses on the wooden stage.
+The actor learns his lines before the show.
+The director films the final scene carefully.
+The writer revises the first draft slowly.
+The editor reads the long manuscript carefully.
+The teacher prepares the daily lesson plan.
+The student reviews the notes before the exam.
+The doctor studies the patient's chart carefully.
+The nurse checks the patient every hour.
+The pharmacist fills the small prescriptions.
+The dentist examines the patient's teeth carefully.
+The lawyer prepares the legal case.
+The judge listens to both sides carefully.
+The politician speaks to the large crowd.
+The reporter writes the daily news story.
+The anchor reads the evening news.
+The photographer captures the perfect moment.
+The artist sketches in the small notebook.
+The designer creates a new collection.
+The architect draws the detailed floor plans.
+The engineer tests the new machine.
+The programmer writes the complex code.
+The analyst reads the market reports carefully.
+The manager schedules the weekly meetings.
+The secretary answers the ringing phone.
+The clerk files the old documents.
+The accountant checks the monthly numbers carefully.
+The banker approves the small loan.
+The cashier counts the day's earnings.
+The waiter serves the hot meal.
+The chef tastes the fresh sauce.
+The host welcomes every guest warmly.
+The guest thanks the kind host.
+The traveler checks the flight schedule.
+The pilot flies through the clear sky.
+The captain guides the ship safely home.
+The sailor ties the heavy rope.
+The passenger reads during the long trip.
+The driver checks the tires carefully.
+The mechanic replaces the old engine.
+The farmer harvests the ripe wheat.
+The gardener waters the young plants.
+The florist arranges the fresh flowers.
+The gardener rakes the fallen leaves.
+The cleaner mops the shiny floor.
+The guard patrols the empty halls.
+The soldier stands at attention.
+The officer salutes the flag.
+The firefighter rescues the trapped family.
+The paramedic comforts the injured man.
+The lifeguard watches the swimming children.
+The coach trains the young athletes.
+The player practices the difficult shot.
+The referee makes the final call.
+The fan cheers loudly from the stands.
+The champion lifts the golden trophy.
+The crowd celebrates the winning goal.
+The teacher grades the exam papers.
+The student asks a thoughtful question.
+The principal announces the school event.
+The parent thanks the kind teacher.
+The child hugs his mother at pickup.
+The bus driver greets every student.
+The crossing guard helps the small children.
+The mail carrier delivers the daily post.
+The newspaper arrives before breakfast.
+The magazine shows the latest fashions.
+The radio plays soft morning music.
+The television shows the evening news.
+The computer boots up slowly this morning.
+The phone rings three times before noon.
+The doorbell chimes across the house.
+The alarm beeps sharply at seven.
+The kettle whistles from the kitchen.
+The clock ticks on the quiet wall.
+The refrigerator hums in the corner.
+The washing machine spins the wet clothes.
+The dryer fluffs the warm towels.
+The vacuum cleans the dusty floor.
+The dishwasher washes the dirty plates.
+The faucet drips in the silent night.
+The fan spins above the sleeping child.
+The heater warms the cold bedroom.
+The air conditioner cools the hot house.
+The lamp glows on the wooden desk.
+The candle flickers in the dark room.
+The fireplace warms the entire house.
+The blanket covers the sleeping baby.
+The pillow supports the tired head.
+The bed holds the sleeping child.
+The chair sits by the open window.
+The table holds the evening meal.
+The shelf displays the old books.
+The cabinet stores the daily dishes.
+The drawer holds the folded clothes.
+The closet contains the winter coats.
+The mirror reflects the morning light.
+The window frames the garden view.
+The door opens to the quiet street.
+The stairway leads to the second floor.
+The hallway connects the front room.
+The kitchen smells of fresh bread.
+The bathroom has a small window.
+The bedroom has a soft blue rug.
+The living room holds the family sofa.
+The dining room seats six people.
+The study holds the old wooden desk.
+The garage stores the family car.
+The garden grows bright summer flowers.
+The yard has a tall maple tree.
+The fence marks the yard boundary.
+The gate opens to the front walk.
+The path leads to the small pond.
+The bridge crosses the narrow creek.
+The creek runs behind the old house.
+The hill rises above the quiet town.
+The valley stretches below the tall cliffs.
+The forest hides many wild animals.
+The meadow fills with summer wildflowers.
+The field grows rows of tall corn.
+The river winds through the green valley.
+The lake reflects the mountain peaks.
+The sea stretches to the far horizon.
+The beach attracts many summer visitors.
+The island sits alone in the wide ocean.
+The desert spreads across the dry land.
+The city lights shine through the night.
+The town square has an old fountain.
+The village church rings its Sunday bells.
+The market opens before the sun rises.
+The bakery sells fresh morning rolls.
+The butcher hangs fresh cuts of meat.
+The pharmacy stocks many kinds of medicine.
+The bookstore displays the newest titles.
+The school yard fills with playing children.
+The park benches face the quiet pond.
+The playground echoes with happy laughter.
+The swimming pool opens in early June.
+The baseball field holds a cheering crowd.
+The football stadium roars with excitement.
+The basketball court hosts a close game.
+The tennis match lasts three long sets.
+The golf course stretches for many miles.
+The skate park attracts many young people.
+The bike trail winds through the quiet woods.
+The hiking trail climbs the steep hill.
+The nature reserve protects many rare birds.
+The botanical garden grows exotic plants.
+The zoo houses many wild animals.
+The aquarium displays colorful tropical fish.
+The science museum shows a new exhibit.
+The art museum holds a famous painting.
+The history museum tells the town's story.
+The library hosts a weekly story hour.
+The theater shows a classic play tonight.
+The cinema screens the latest movie.
+The cafe serves warm drinks and sandwiches.
+The restaurant offers a seasonal menu.
+The diner stays open all night long.
+The hotel welcomes tired travelers.
+The motel has many empty rooms.
+The inn serves a hearty breakfast.
+The hostel attracts many young backpackers.
+The airport handles hundreds of flights daily.
+The train station echoes with loud announcements.
+The bus terminal connects the whole city.
+The harbor protects the fishing boats.
+The dock holds a small sailboat.
+The lighthouse guides the ships safely home.
+The ferry carries passengers across the bay.
+The cruise ship sails to warm islands.
+The canal connects two large rivers.
+The tunnel passes under the tall mountain.
+The highway crosses the entire state.
+The freeway carries heavy morning traffic.
+The country road winds past quiet farms.
+The side street leads to the old church.
+The alley cuts between the tall buildings.
+The square opens before the town hall.
+The plaza hosts the weekly market.
+The promenade stretches along the beach.
+The boardwalk features many small shops.
+The pier extends over the quiet water.
+The marina holds many small boats.
+The boatyard repairs old wooden ships.
+The shipyard builds large cargo vessels.
+The factory produces thousands of parts daily.
+The mill grinds the fresh wheat.
+The brewery makes a popular local beer.
+The winery bottles the new vintage.
+The dairy produces fresh milk daily.
+The orchard grows sweet summer apples.
+The greenhouse shelters young plants.
+The barn stores the winter hay.
+The silo holds the fresh grain.
+The pasture holds the grazing cows.
+The corral keeps the horses safe.
+The coop shelters the laying hens.
+The sty houses the growing pigs.
+The stable shelters the valuable horses.
+The kennel houses many happy dogs.
+The apiary produces fresh local honey.
+The hatchery raises young fish.
+The vineyard stretches across the sunny hill.
+The ranch raises cattle and sheep.
+The farm produces fresh local food.
+The garden feeds the entire family.
+The kitchen fills with the smell of cooking.
+The dining room echoes with conversation.
+The living room welcomes every guest.
+The bedroom offers a quiet retreat.
+The office hosts the morning meetings.
+The classroom holds twenty quiet students.
+The lecture hall fills with attentive listeners.
+The library provides a peaceful study space.
+The laboratory holds many delicate instruments.
+The workshop echoes with the sound of tools.
+The studio displays the artist's new work.
+The gallery exhibits the famous paintings.
+The theater opens for the evening show.
+The arena fills before the big game.
+The stadium hosts the championship match.
+The pool opens before the sun rises.
+The gym stays busy all evening long.
+The spa offers a relaxing massage.
+The salon opens at nine every morning.
+The clinic helps many sick patients.
+The infirmary holds a few empty beds.
+The ward fills with the morning rounds.
+The theater performs a sold out show.
+The audience claps loudly at the end.
+The singer thanks the cheering crowd.
+The band plays one final encore.
+The orchestra tunes before the concert.
+The pianist practices the difficult passage.
+The violinist holds the long final note.
+The drummer keeps the steady beat.
+The guitarist plays a soft melody.
+The conductor raises the wooden baton.
+The choir sings a beautiful hymn.
+The dancers glide across the wooden stage.
+The actors take their final bow.
+The curtain falls on the closing scene.
+The director thanks the cast warmly.
+The crew strikes the entire set.
+The audience files out slowly.
+The lobby fills with happy chatter.
+The parking lot empties within an hour.
+The city sleeps beneath the stars.
+The sun creeps over the eastern hills.
+The morning brightens the entire valley.
+The birds begin their dawn chorus.
+The rooster crows at the first light.
+The baker opens the early shop.
+The milkman makes his daily rounds.
+The postman walks his familiar route.
+The children gather at the bus stop.
+The school bell rings at eight sharp.
+The class settles into morning work.
+The teacher opens the daily lesson.
+The students listen with full attention.
+The bell rings for the short break.
+The playground fills with laughing voices.
+The lunch bell rings at exactly noon.
+The dining hall fills with hungry students.
+The afternoon passes very quickly.
+The final bell rings at three sharp.
+The children pour into the street.
+The buses take the students home.
+The afternoon light fades to gold.
+The evening brings the quiet calm.
+The family gathers for dinner.
+The kitchen fills with warm smells.
+The father carves the roast carefully.
+The mother passes the fresh vegetables.
+The children share stories from their day.
+The baby naps in the nearby crib.
+The dog waits under the wooden table.
+The cat curls up on the warm rug.
+The fire crackles in the fireplace.
+The family talks into the evening.
+The moon climbs above the trees.
+The night settles over the house.
+The parents read before sleeping.
+The children dream of summer days.
+The house is quiet once more.
+The cat sleeps by the old fireplace.
+The dog guards the quiet house.
+The wind whispers through the dark trees.
+The rain taps softly on the roof.
+The old clock chimes at midnight.
+The night passes in peaceful silence.
+The rooster crows before the sun.
+The baker kneads the morning dough.
+The milkman drives through the town.
+The paperboy rides his familiar route.
+The garbage truck rumbles down the street.
+The street sweeper cleans the road.
+The newspaper lands on the front step.
+The coffee pot begins to bubble.
+The toaster pops up the warm bread.
+The kettle whistles in the kitchen.
+The family wakes to a new day.
+The boy grabs his heavy backpack.
+The girl ties her bright red shoes.
+The parents hurry to the front door.
+The school bus pulls up outside.
+The children wave a quick goodbye.
+The morning traffic fills the streets.
+The crosswalk guard helps the young students.
+The delivery truck blocks the narrow lane.
+The coffee shop fills with workers.
+The bakery sells out before noon.
+The grocery store opens all morning.
+The bank begins its daily business.
+The post office stamps the day's mail.
+The library opens its wide doors.
+The hospital starts its morning rounds.
+The gas station serves a steady stream.
+The car wash shines every car.
+The hardware store sells many tools.
+The flower shop arranges fresh bouquets.
+The bookshop welcomes quiet readers.
+The toy store fills with excited children.
+The sweet shop sells fresh candy.
+The ice cream truck drives through town.
+The fire station washes the bright engine.
+The police station files the daily reports.
+The taxi stand waits for its next fare.
+The bus station fills with tired travelers.
+The train platform hums with soft chatter.
+The airport greets early morning flyers.
+The harbor fills with returning boats.
+The farmer rises with the early sun.
+The fisherman checks his heavy nets.
+The shepherd leads his flock to pasture.
+The dairyman milks the quiet cows.
+The gardener tends the young plants.
+The orchard owner climbs the ladder.
+The beekeeper checks the busy hives.
+The horse trainer exercises the young horse.
+The dog walker gathers the eager dogs.
+The chicken farmer gathers the fresh eggs.
+The goat herder guides the small herd.
+The pig farmer feeds the growing pigs.
+The turkey farmer counts the flock.
+The duck pond fills with quacking birds.
+The goose pond hosts many loud geese.
+The pigeon coop opens every morning.
+The sparrow nest sits in the roof.
+The birdbath attracts the daily birds.
+The squirrel steals the fallen nuts.
+The chipmunk hides near the stone wall.
+The rabbit holes dot the open meadow.
+The deer grazes near the quiet woods.
+The fox hides behind the bushes.
+The owl watches from the tall tree.
+The hawk circles high above.
+The eagle nests in the rocky cliff.
+The crow lands on the wooden fence.
+The robin sings from the highest branch.
+The bluejay calls from the oak tree.
+The woodpecker taps at the tree.
+The dove coos softly all morning.
+The wren builds a tiny nest.
+The finch feeds at the small feeder.
+The finch sings a cheerful song.
+The cardinal flashes bright red.
+The chickadee lands on the hand.
+The hummingbird drinks from the flower.
+The bumblebee flies between blossoms.
+The dragonfly lands on the tall grass.
+The butterfly rests on the pink rose.
+The moth circles the porch light.
+The firefly glows at dusk.
+The spider weaves between two branches.
+The beetle climbs the tall stalk.
+The caterpillar crawls along the leaf.
+The grasshopper jumps through the yard.
+The cricket sings all night.
+The cicada buzzes in the summer heat.
+The mosquito bites my bare arm.
+The fly lands on the kitchen counter.
+The ant carries a heavy crumb.
+The centipede runs across the floor.
+The earthworm moves through the soft soil.
+The snail leaves a silver trail.
+The slug eats the fresh garden leaves.
+The turtle rests in the warm sun.
+The frog leaps across the wet log.
+The toad hides in the shade.
+The snake slithers through the tall grass.
+The lizard basks on the sunny rock.
+The gecko clings to the wall.
+The crocodile waits in the shallow river.
+The alligator sleeps on the muddy bank.
+The shark circles near the reef.
+The whale breaches far from shore.
+The dolphin swims beside the boat.
+The seal suns on the rocky coast.
+The walrus rests on the icy beach.
+The penguin waddles along the shore.
+The polar bear hunts on the ice.
+The brown bear catches fresh fish.
+The black bear climbs the tall tree.
+The mountain lion stalks through the night.
+The lynx hides in the deep snow.
+The bobcat hunts near the treeline.
+The wolf howls across the valley.
+The coyote yips in the night.
+The jackal waits by the dry river.
+The hyena laughs in the distance.
+The lion rests under the acacia tree.
+The lioness hunts for her cubs.
+The leopard sleeps in the tree.
+The cheetah races across the plain.
+The elephant drinks from the river.
+The rhino cools in the mud.
+The hippo yawns in the river.
+The giraffe reaches the highest leaves.
+The zebra grazes in the wide plain.
+The wildebeest crosses the wide river.
+The buffalo stands together in the herd.
+The gazelle leaps across the open field.
+The antelope drinks from the quiet pond.
+The bison roams the wide grassland.
+The moose wades in the cold lake.
+The elk calls through the forest.
+The deer bounds across the field.
+The mountain goat climbs the rocky cliff.
+The bighorn sheep rests on the ledge.
+The camel walks across the desert sand.
+The llama grazes in the high pasture.
+The alpaca wears a warm winter coat.
+The yak carries a heavy load.
+The reindeer pulls the winter sled.
+The kangaroo carries a baby in its pouch.
+The koala sleeps in the tall tree.
+The panda eats fresh bamboo all day.
+The sloth hangs upside down.
+The monkey swings from the highest branch.
+The gorilla rests in the shade.
+The chimpanzee uses a simple tool.
+The orangutan builds a leafy nest.
+The baboon watches over the troop.
+The lemur leaps between the trees.
+The meerkat stands on guard duty.
+The mongoose catches a passing snake.
+The otter plays in the cool river.
+The beaver builds a strong dam.
+The badger digs near the quiet trail.
+The raccoon raids the garbage bin.
+The skunk warns with a lifted tail.
+The opossum hangs by its tail.
+The hedgehog rolls into a ball.
+The squirrel buries the winter nuts.
+The chipmunk stuffs both cheeks.
+The groundhog checks for its shadow.
+The marmot whistles from the rock.
+The porcupine climbs the small tree.
+The armadillo digs in the dry soil.
+The anteater licks up the ants.
+The pangolin rolls into a ball.
+The aardvark digs the night hole.
+The bat hangs from the cave roof.
+The mole tunnels deep underground.
+The shrew hunts through the tall grass.
+The vole runs along the narrow path.
+The weasel darts into the log.
+The ferret plays with the small toy.
+The badger lives in the deep den.
+The cat sleeps on the softest chair.
+The dog barks at the visiting postman.
+The bird sings from the garden wall.
+The fish swims in the clean water.
+The cat waits by the kitchen door.
+The dog runs to greet his owner.
+The birds fly south in the fall.
+The fish hide under the cool rock.
+The cat climbs the highest fence.
+The dog digs a hole in the soft earth.
+The rabbit hops across the quiet yard.
+The squirrel gathers the fallen acorns.
+The deer drinks from the shallow stream.
+The birdbathes in the small puddle.
+The cat watches the moving shadows.
+The dog chases every passing car.
+The chickens peck at the loose grain.
+The horse neighs in the quiet stable.
+The cow grazes near the wooden fence.
+The sheep bleat from the far pasture.
+The pig rolls in the cool mud.
+The goat climbs the steep hill.
+The duck paddles across the quiet pond.
+The goose honks at the passing stranger.
+The turkey fans his bright feathers.
+The rooster struts across the barnyard.
+The hen clucks to her little chicks.
+The peacock shows his brilliant feathers.
+The parrot copies every new word.
+The canary sings a cheerful tune.
+The budgie hops across the wooden perch.
+The hawk watches from the treetop.
+The eagle dives toward the fish.
+The owl returns to the hollow tree.
+The crow calls from the old fence.
+The raven learns a new sound.
+The magpie collects bright objects.
+The pigeon lands on the small ledge.
+The dove rests in the narrow shade.
+The robin pulls the early worm.
+The wren sings from the low bush.
+The finch rests on the tall fence.
+The sparrow bathes in the dusty dirt.
+The starling mimics the car alarm.
+The bluebird nests in the wooden box.
+The swallow builds a mud nest.
+The swift darts through the open sky.
+The hummingbird hovers near the flower.
+The woodpecker drums on the dead tree.
+The kingfisher dives into the water.
+The heron stands in the shallow stream.
+The stork carries food to her young.
+The crane calls across the wide marsh.
+The gull screeches over the harbor.
+The tern dives toward the waves.
+The pelican scoops the small fish.
+The penguin glides through the cold water.
+The dolphin swims beside the small boat.
+The whale sings in the deep ocean.
+The seal rests on the sunny rock.
+The walrus climbs onto the ice.
+The turtle wades into the cool sea.
+The crab scuttles across the sand.
+The starfish clings to the wet rock.
+The jellyfish drifts with the tide.
+The octopus hides in the rocky cave.
+The squid shoots a cloud of ink.
+The clam buries in the wet sand.
+The oyster holds a small pearl.
+The lobster hides among the rocks.
+The shrimp rests on the sandy floor.
+The snail crawls across the wet leaf.
+The worm burrows through the soft soil.
+The beetle rolls a small ball.
+The ant lifts a heavy crumb.
+The bee collects the fresh nectar.
+The wasp builds a paper nest.
+The hornet defends the hidden hive.
+The termite builds a tall mound.
+The cricket sings in the summer night.
+The cicada drones through the heat.
+The grasshopper leaps high into the air.
+The mantis waits in the tall grass.
+The dragonfly hovers above the pond.
+The damselfly rests on the reed.
+The firefly lights up the dark night.
+The moth flies toward the bright lamp.
+The butterfly lands on the pink flower.
+The caterpillar chews the green leaf.
+The spider spins a careful web.
+The scorpion hides under a stone.
+The centipede runs across the path.
+The millipede moves very slowly.
+The tarantula digs a deep burrow.
+The lizard suns on the warm rock.
+The gecko clings to the wall.
+The chameleon changes its color.
+The snake slithers through the dry grass.
+The turtle hides in its shell.
+The tortoise walks very slowly.
+The crocodile watches from the water.
+The frog jumps into the pond.
+The toad hides under the leaf.
+The salamander rests by the stream.
+The newt walks across the wet log.
+The fish darts through the cool water.
+The goldfish swims in the small bowl.
+The koi glides through the quiet pond.
+The trout waits in the shaded pool.
+The salmon swims up the rushing river.
+The eel hides in the muddy bank.
+The ray glides across the sandy floor.
+The shark patrols the cold reef.
+The marlin leaps out of the sea.
+The tuna swims swiftly through the ocean.
+The cat purrs softly by the fire.
+The dog barks at the neighbor's cat.
+The bird sings a soft evening song.
+The fish swims quietly in the tank.
+The kitten chases a moving shadow.
+The puppy chews a rubber toy.
+The horse grazes in the green field.
+The cow stands in the shaded barn.
+The sheep huddle against the cold wind.
+The pig rests in the warm barn.
+The goat climbs the tallest rocks.
+The duck floats on the quiet pond.
+The hen gathers her little flock.
+The rooster stands on the wooden fence.
+The dog waits for his daily walk.
+The cat sleeps in the sunny window.
+The bird builds a tiny nest.
+The rabbit hops through the garden.
+The mouse darts into the hole.
+The squirrel climbs the rough tree.
+The deer grazes in the quiet dawn.
+The fox trots across the open field.
+The owl hoots from the tall pine.
+The hawk circles slowly above.
+The crow perches on the metal post.
+The raven calls from the cliff.
+The sparrow sings from the low bush.
+The finch rests on the small feeder.
+The bluebird lands on the wooden box.
+The cardinal flashes bright red.
+The hummingbird drinks from the flower.
+The bee flies from bloom to bloom.
+The butterfly rests on the tall grass.
+The grasshopper jumps across the path.
+The dragonfly skims the pond surface.
+The frog sits on the lily pad.
+The turtle suns on the log.
+The snake slides across the trail.
+The lizard basks on the warm stone.
+The ant marches in a straight line.
+The spider hangs from a single thread.
+The cat pounces on the moving string.
+The dog catches the flying ball.
+The puppy chases his own tail.
+The horse jumps over the low fence.
+The cow chews the fresh hay.
+The hen scratches at the loose dirt.
+The duck splashes in the shallow pond.
+The fish swims around the small tank.
+The bird flies back to her nest.
+The rabbit eats the fresh lettuce.
+The tortoise slowly crosses the path.
+The cat licks her soft paw.
+The dog wags his bushy tail.
+The bird flutters from branch to branch.
+The bee lands on the yellow flower.
+The ant carries a leaf piece.
+The spider repairs her damaged web.
+The squirrel guards his hidden stash.
+The deer freezes at the slightest sound.
+The fox listens with both ears up.
+The owl watches without moving.
+The hawk dives with sudden speed.
+The cat sleeps the whole afternoon.
+The dog waits patiently by the door.
+The horse paws the soft ground.
+The cow lifts her heavy head.
+The sheep bleat for their young.
+The pig snorts in his sleep.
+The goat nudges the wooden gate.
+The duck paddles with both feet.
+The hen gathers her chicks closely.
+The rooster crows at first light.
+The cat watches the fish swim.
+The dog barks at the bird.
+The bird sings to her mate.
+The bee returns with her pollen.
+The butterfly opens her bright wings.
+The grasshopper rests on a blade.
+The frog croaks a low note.
+The snake sheds her old skin.
+The lizard puffs his throat pouch.
+The turtle pulls in her head.
+The cat washes her face carefully.
+The dog shakes off the water.
+The horse tosses her long mane.
+The cow swishes her tail slowly.
+The hen puffs her feathers.
+The duck preens her feathers.
+The fish rises to the surface.
+The turtle climbs onto the log.
+The cat curls into a tight ball.
+The dog stretches his front legs.
+The bird tucks his head under.
+The horse rolls in the soft dirt.
+The cow wanders toward the barn.
+The sheep huddle for warmth.
+The goat leaps up the rocks.
+The pig digs in the soft straw.
+The hen leads the way home.
+The duck returns to her nest.
+The cat opens one lazy eye.
+The dog lifts his sleepy head.
+The bird fluffs his feathers.
+The rabbit twitches his nose.
+The squirrel chases his own shadow.
+The deer raises her alert ears.
+The fox sniffs at the morning air.
+The owl turns his great head.
+The hawk rides the rising wind.
+The cat leaps onto the counter.
+The dog jumps into the cold river.
+The horse gallops across the field.
+The cow wanders across the pasture.
+The sheep bleat at the shepherd.
+The goat balances on the ledge.
+The pig wallows in the cool mud.
+The hen pecks at a small stone.
+The duck dabbles in the shallow edge.
+The rooster struts across the yard.
+The cat naps on the warm windowsill.
+The dog dreams in his soft bed.
+The bird chirps in the morning sun.
+The kitten plays with a wool yarn.
+The puppy chews on a rubber bone.
+The horse stands in the warm sun.
+The cow rests in the cool shade.
+The hen lays an egg each day.
+The fish swims to the glass edge.
+The rabbit hops back to the garden.
+The squirrel scampers up the tree.
+The deer grazes at the forest edge.
+The fox returns to his hidden den.
+The owl flies silently through the trees.
+The hawk lands on the dead branch.
+The cat catches the moving fly.
+The dog brings the stick back home.
+The bird drops a twig in her nest.
+The bee dances near the hive.
+The butterfly closes her wings.
+The spider waits at the web's edge.
+The ant adds to the growing pile.
+The snail leaves a silver trail.
+The turtle wades into the pond.
+The frog leaps onto the rocky shore.
+The snake crosses the narrow path.
+The lizard watches from the wall.
+The fish rises to catch a fly.
+The shrimp dashes across the sand.
+The crab retreats into his shell.
+The starfish clings to the wet rock.
+The jellyfish drifts with the tide.
+The dolphin leaps out of the sea.
+The whale dives toward the deep.
+The seal barks across the cove.
+The turtle drags herself onto the sand.
+The penguin dives into the cold sea.
+The polar bear stands on the ice.
+The brown bear fishes in the stream.
+The tiger rests beneath the trees.
+The lion roars across the plain.
+The lioness feeds her cubs.
+The leopard crouches in the grass.
+The cheetah overtakes the fleeing gazelle.
+The elephant sprays himself with water.
+The giraffe reaches for the highest leaves.
+The zebra runs with the whole herd.
+The wildebeest crosses the wide river.
+The rhino stands in the shallow pool.
+The hippo opens his enormous mouth.
+The camel walks steadily across the dunes.
+The kangaroo carries her joey.
+The koala clings to the eucalyptus tree.
+The monkey swings from the highest branch.
+The gorilla beats his chest slowly.
+The panda sits quietly eating bamboo.
+The sloth hangs upside down.
+The meerkat stands on guard duty.
+The otter floats on his back.
+The beaver adds a branch to his dam.
+The raccoon washes his food.
+The squirrel hides his winter nuts.
+The skunk raises his warning tail.
+The hedgehog rolls into a prickly ball.
+The badger waits until nightfall.
+The deer freezes and listens.
+The rabbit disappears into the brush.
+The fox tracks the smallest sound.
+The owl turns his head around.
+The hawk circles high in the sky.
+I want to go to the store.
+She needs to finish her homework.
+He plans to visit his family soon.
+We hope to travel next summer.
+They decided to buy a new car.
+My mother wants me to eat more vegetables.
+The teacher asked us to open our books.
+The doctor told him to rest for a week.
+The coach told the team to practice harder.
+The waiter asked us if we wanted dessert.
+The old man asked me where the station was.
+I wonder if it will rain tomorrow.
+She asked if the train had arrived.
+He wanted to know how the machine worked.
+They wondered whether the plan would succeed.
+The child asked why the sky is blue.
+The student asked how the stars are formed.
+The visitor asked which door led outside.
+The guest asked when the next train leaves.
+The neighbor asked if we needed any help.
+When the rain stopped, the children ran outside to play.
+Although she was tired, she finished the work before dinner.
+Because the road was slippery, we drove very slowly.
+If you study hard, you will probably pass the exam.
+The book that I borrowed from the library was fascinating.
+Since it was a holiday, all the shops were closed.
+While I was cooking dinner, my phone rang loudly.
+The man who lives next door is a famous writer.
+After the guests had left, we cleaned the entire house.
+Unless you leave now, you will miss the last train.
+Because she loves animals, she volunteers at the local shelter.
+When the alarm rang, everyone hurried to the door.
+Although the weather was cold, we still walked to the beach.
+If the package arrives, please let me know.
+The children who were playing outside came in for dinner.
+The city where I was born has changed a great deal.
+I read the letter while I was waiting for the bus.
+Because the store was closed, we ordered food online.
+The woman whose car was stolen called the police.
+Since he was already late, he took a taxi.
+When the sun set, the entire valley turned pink.
+As soon as the bell rang, the students left the classroom.
+Even though the movie was long, nobody left the theater.
+If you water the plants every day, they will grow quickly.
+The teacher explained the problem until everyone understood.
+Although the traffic was heavy, we arrived on time.
+The book that she recommended turned out to be excellent.
+While the children were sleeping, the parents cleaned up.
+Because he had studied all week, he felt ready for the exam.
+After the storm passed, the sun came out from behind the clouds.
+Before you leave the house, please turn off all the lights.
+The dog that was barking finally calmed down.
+Since she had never seen the ocean, the trip was very exciting.
+Unless the weather improves, the game will be cancelled.
+The family that lives across the street has three small children.
+While the band was playing, the crowd danced in the street.
+Because the milk was spoiled, he threw it away.
+As the sun rose, the fog slowly disappeared.
+The students were confused because the instructions were unclear.
+Although the sandwich was expensive, it tasted delicious.
+The girl who won the contest practiced every single day.
+Once the fire had gone out, the room grew cold.
+The car stopped because the engine was too hot.
+If you follow this path, you will reach the waterfall.
+The teacher smiled when the student answered correctly.
+While they were traveling, they took many beautiful photographs.
+Because the key was lost, nobody could open the door.
+The parcel that arrived this morning was carefully wrapped.
+Although the storm was severe, the old house held together.
+After the guests arrived, we served the warm dinner.
+Unless she calls back, we will assume she is not coming.
+When the movie ended, everyone sat in silence.
+The neighbors whose dog was missing put up many posters.
+Because he practices daily, he has become very good at guitar.
+If the bus is late again, we will take the train.
+While I was reading, the lamp suddenly went out.
+Since the bridge was closed, we had to take a longer route.
+The old woman who lives alone has a beautiful garden.
+Although we had planned carefully, things did not go as expected.
+When the lights came back on, everyone cheered.
+The doctor explained the procedure because the patient looked worried.
+The cat hid under the bed when the thunder began.
+While they waited at the airport, they read the daily papers.
+Because it was raining, we decided to stay indoors.
+As soon as the song started, the children began to dance.
+The letter that she wrote was full of kind words.
+Although he works very hard, he always finds time for his family.
+When the season changed, the leaves turned bright colors.
+The scientist who discovered the virus won a major prize.
+Because the road was flooded, the cars turned around.
+While the mother cooked, the children set the table.
+If the bakery is open, please buy some fresh bread.
+The students worked together until the project was finished.
+Since the museum closes early, we should go in the morning.
+The picture that hangs in the hall was painted by my grandmother.
+Although she felt nervous, she gave a wonderful speech.
+When the wind picked up, the kite climbed high into the sky.
+Because the show was sold out, they waited outside the theater.
+The friend who helped me move yesterday is coming for dinner.
+As the train pulled away, we waved until it disappeared.
+Unless you check the oil, the car may break down.
+The people who live near the river worry about floods.
+Even though the recipe was simple, the meal tasted wonderful.
+When the fish began to bite, everyone grabbed their rods.
+Because the students had studied well, the test results were excellent.
+After the meeting ended, everyone went back to their desks.
+If you look closely, you can see the tiny birds.
+The path that leads to the lake is quite steep.
+While the kettle boiled, she sliced the fresh bread.
+Although the bag was heavy, he carried it all the way home.
+When the storm arrived, everyone ran for shelter.
+The teacher noticed that the student had been very quiet.
+Because the birds were singing, I opened the window.
+After you finish your homework, you can watch a movie.
+The bridge that crosses the river was built many years ago.
+Since the shop was crowded, we waited outside for a while.
+The musician who plays the piano is only twelve years old.
+Although the traffic was terrible, we still made it on time.
+When the elevator opened, a tall man stepped out.
+Because the room was cold, she wrapped herself in a blanket.
+Unless the recipe says otherwise, stir the mixture slowly.
+The children whose parents are traveling stayed with their aunt.
+As the evening grew late, the guests slowly said goodbye.
+If you need anything, don't hesitate to ask.
+The dog followed us until we reached the park.
+Since the store had no milk, we bought juice instead.
+While the artist painted, the sunlight filled the small studio.
+The worker who fixed the roof did an excellent job.
+Even though it was late, she decided to finish the chapter.
+When the bell rang, the children ran to the playground.
+Because the cake was still warm, it smelled absolutely wonderful.
+After they had eaten, they cleared the table together.
+The neighbor whose garden is always tidy helped us plant.
+Unless it rains, we will have a picnic tomorrow.
+The story that she told us was both funny and sad.
+Although the line was long, everyone waited patiently.
+When the sun came up, the entire city seemed to glow.
+Because the road was blocked, we had to turn back.
+The woman who teaches my daughter is very patient.
+As the music played, the couple danced across the room.
+If you finish the assignment tonight, you can relax tomorrow.
+The children laughed when the clown fell down.
+Since the package never arrived, they requested a refund.
+While the soup simmered, the whole house smelled delicious.
+The pilot who flew the plane had many years of experience.
+Although the rules were strict, the children enjoyed the game.
+When the snow finally stopped, the whole yard was white.
+Because the students were noisy, the teacher waited quietly.
+After the play ended, the audience stood and applauded.
+The book that I am reading has an exciting plot.
+Unless the weather changes, we will cancel the trip.
+The man whose shop burned down is now rebuilding slowly.
+As the bus drove away, I realized I had forgotten my bag.
+Even though she practiced daily, she still felt nervous.
+When the phone rang, everyone in the room went silent.
+Because the fence was broken, the sheep wandered into the field.
+While the father cooked, the mother read to the children.
+The doctor who treated me was very kind and patient.
+Although the test was difficult, most students did quite well.
+As the clouds gathered, we hurried to pack up the picnic.
+If the store is closed, we can order dinner online.
+The student who answered first received a small prize.
+Because the sun was setting, the sky turned golden.
+When the fire alarm rang, everyone left the building quickly.
+After the guests had gone, the house felt very quiet.
+The friend that I met in college now lives in Tokyo.
+Unless she apologizes, I will not speak to her again.
+While the wind howled, we sat safely by the fire.
+The museum that we visited last summer has a new exhibit.
+Even though the trail was steep, we reached the top.
+When the meeting ended, the manager called me into her office.
+Because the coffee was too hot, he waited before drinking.
+As the baby slept, the parents finally relaxed.
+The woman who wrote the letter signed it with love.
+Although the answer was simple, nobody thought of it.
+After the rain stopped, the air felt cool and clean.
+While the students worked, the teacher walked between the desks.
+The boy whose bike was stolen searched the whole street.
+If you keep practicing, your writing will improve quickly.
+When the lights went out, everyone began to laugh.
+Because the bridge was old, the town planned to rebuild it.
+The family that adopted the puppy came back for a second one.
+As the sun sank, the children were called home for dinner.
+Even though the path was rough, they enjoyed the hike.
+When the song ended, the room broke into loud applause.
+Since the phone had died, I could not call for help.
+While the rain fell, the children played inside.
+The traveler whose passport was lost contacted the embassy.
+If you look at the horizon, you can see the distant mountains.
+Because he spoke so quietly, we could hardly hear him.
+After the party ended, everyone helped clean up.
+The musician who composed the song is from Argentina.
+Although she had a cold, she still came to the rehearsal.
+When the bell rang, the students grabbed their bags.
+Because the road was narrow, the cars moved slowly.
+As the sun rose, the mist lifted from the lake.
+The teacher who inspired me still teaches at the same school.
+Even though the choice was difficult, she made it bravely.
+When we arrived at the station, the train had already left.
+Since the field was wet, the players slipped often.
+The couple whose anniversary is today went out for dinner.
+Unless the committee agrees, the project cannot begin.
+While the fire burned, we warmed our hands.
+The book that won the prize has been translated into many languages.
+After the storm, the streets were covered with broken branches.
+Because the bakery had sold out, we went to the cafe instead.
+When she saw the ocean for the first time, she cried.
+Although the path was not marked, we found our way home.
+As the children grew older, the house felt quieter.
+The lawyer who handled the case was very experienced.
+If the rain stops by noon, we will play outside.
+Since he had forgotten his key, he waited on the porch.
+While we waited at the airport, we bought some coffee.
+The gardener whose roses are famous won another prize.
+Even though the book was long, she read it in two days.
+When the lights flickered, everyone in the room held their breath.
+Because the exam was difficult, the students studied hard all week.
+After the news was announced, the whole town celebrated.
+The pilot whose plane had engine trouble landed safely.
+If you cannot find the answer, ask for help.
+As the wind rose, the sailors prepared for the storm.
+The singer who performed last night is only seventeen.
+Although the task was boring, he finished it carefully.
+When the coffee spilled, she grabbed a cloth quickly.
+Since the store is closed on Sundays, we shop on Saturday.
+The woman whose dog won the contest smiled proudly.
+While the children swam, the parents watched from the shore.
+The doctor who saved my father's life became a family friend.
+Because the show was cancelled, we rented a movie instead.
+After the exam, the students celebrated at a nearby cafe.
+The artist whose work hangs in the museum lives in Paris.
+Even though the room was small, it felt warm and cozy.
+When the kettle whistled, she poured the tea carefully.
+Since the package arrived late, the birthday was postponed.
+The teacher whose class is always quiet must be very patient.
+If the traffic is light, we can reach the beach by noon.
+While the dog slept, the cat crept toward the door.
+The family that hosted the exchange student still keeps in touch.
+Although the cake looked beautiful, it tasted a bit dry.
+When the story ended, everyone wanted to hear another one.
+Because the sky was clear, we could see the stars easily.
+After the match ended, the players shook hands warmly.
+The farmer whose crops survived the drought shared his harvest.
+As the evening came, the party slowly wound down.
+The teacher asked whether we had finished the project.
+The child wondered why the moon changes shape.
+I asked my father if we could go fishing tomorrow.
+She wanted to know where her keys had gone.
+The student asked how he could improve his writing.
+The visitor asked whether the museum was open today.
+He wondered whether his friend would remember his birthday.
+I want to know when the next bus leaves.
+The doctor asked how long I had felt this way.
+The woman asked me if I had seen her dog.
+The children asked why they could not stay up later.
+He asked her whether she had finished the book.
+She wondered whether the weather would improve.
+My mother asked whether I had eaten lunch.
+The traveler asked how far the next town was.
+The chef asked when the guests would arrive.
+She wanted to know what time the store closes.
+The teacher wondered whether the students understood.
+I asked if anyone had seen my umbrella.
+He asked me to close the window.
+She told us to wait in the hall.
+The teacher asked the class to sit quietly.
+The doctor told the patient to drink more water.
+The coach told the players to warm up first.
+My mother asked me to pick up some milk.
+The man asked us to help carry the boxes.
+The manager told her team to finish by Friday.
+The father told his son to be careful.
+The waiter asked us to follow him to the table.
+He promised to send the package by Friday.
+She offered to help me with the dishes.
+We decided to leave before the storm began.
+They planned to visit the museum on Sunday.
+I remembered to call my grandmother.
+She forgot to bring the tickets.
+The boy tried to catch the falling leaf.
+He learned to play the guitar when he was ten.
+She hopes to become a doctor someday.
+They agreed to meet at the corner store.
+We chose to walk instead of taking the bus.
+He refused to answer the phone.
+She managed to finish the marathon.
+The team expected to win the final game.
+I started to read the new novel.
+They continued to work until midnight.
+She wanted to apologize for her mistake.
+He decided to buy the blue shirt.
+I forgot to water the plants this morning.
+She promised to call every Sunday.
+The child began to cry when he dropped his toy.
+The driver tried to park the large truck.
+The teacher asked us to listen carefully.
+My father taught me how to ride a bike.
+The mother told her son to wash his hands.
+The nurse told the patient to rest.
+The teacher asked the students to open their books.
+The guard told us to leave the building.
+The woman asked me to speak more slowly.
+The boy wanted to show us his new toy.
+She said that she would arrive on Monday.
+He told me that the movie was excellent.
+They said that they had already eaten.
+The doctor said that I should rest more.
+She told us that the train had been delayed.
+He mentioned that he had met her before.
+The teacher explained that the earth goes around the sun.
+The scientist said that the results were promising.
+The woman said that she was feeling better.
+The boy complained that the soup was too hot.
+She asked if I could help her move.
+He asked whether I had finished the book.
+The teacher wanted to know who had written the note.
+The neighbor asked when the party would start.
+The boss asked why I had missed the meeting.
+The doctor asked how long I had been sick.
+She wanted to know where I had bought the dress.
+The child asked why the sun goes down.
+My friend asked whether I liked the new cafe.
+The woman wondered if it would snow tonight.
+The old man told a story about a lost treasure.
+The mother sang a lullaby to her baby.
+The teacher read a poem to the class.
+The grandfather told stories about his childhood.
+The grandmother shared recipes from her homeland.
+The traveler described the beautiful mountain views.
+The witness explained what he had seen that night.
+The coach described the plan for the final game.
+The guide showed us the oldest parts of the city.
+The chef demonstrated how to make fresh pasta.
+The musician explained how the instrument works.
+The doctor described the treatment in simple words.
+The teacher asked us to summarize the chapter.
+The manager asked her team to review the plan.
+The student wrote a letter to the mayor.
+The boy drew a picture of his family.
+The girl painted a landscape of the lake.
+The woman photographed the colorful market.
+The reporter interviewed several local farmers.
+The volunteer helped clean up the river.
+The children collected cans for the recycling drive.
+The neighbors organized a block party.
+The family hosted a dinner for their guests.
+The friends planned a surprise for their teacher.
+The students organized a book drive.
+The community built a new playground.
+The town held a festival every summer.
+The city opened a new public library.
+The school hosted a science fair.
+The museum launched an interactive exhibit.
+The hospital opened a new children's wing.
+The park added a walking trail.
+The zoo welcomed two baby pandas.
+The aquarium rescued a stranded sea turtle.
+The rescue team saved a lost hiker.
+The firefighters put out the brush fire quickly.
+The doctors treated the injured cyclist.
+The volunteers cleaned the flooded streets.
+The neighbors helped rebuild the damaged house.
+The community gathered to support the family.
+The children decorated cards for the elderly.
+The students planted trees in the schoolyard.
+The scouts cleaned up the hiking trail.
+The volunteers served meals at the shelter.
+The church hosted a charity dinner.
+The library organized a book sale.
+The school raised funds for new equipment.
+The team trained hard for the final match.
+The choir practiced for the holiday concert.
+The band prepared for their first show.
+The dancers rehearsed every evening.
+The actors memorized their lines by Friday.
+The director chose a local play.
+The audience loved the opening night.
+The critics praised the young performer.
+The crowd cheered the winning team.
+The fans filled the entire stadium.
+The coach thanked his players warmly.
+The player thanked the cheering fans.
+The team celebrated the big victory.
+The children ran through the sprinklers happily.
+The family packed the car for the trip.
+The father checked the tires twice.
+The mother packed fresh snacks for the road.
+The baby slept through the long drive.
+The dog rested quietly in the back seat.
+The family arrived at the beach by noon.
+The children raced toward the water.
+The parents set up the umbrella.
+The dog chased the flying seagulls.
+The boy built a sandcastle.
+The girl collected colorful shells.
+The mother spread out the picnic lunch.
+The father took a short nap.
+The family watched the sun set slowly.
+The sky turned pink and gold.
+The waves rolled gently onto the shore.
+The seagulls called above the beach.
+The children fell asleep on the drive home.
+The family arrived home very late.
+The mother carried the sleeping children inside.
+The father unloaded the car carefully.
+The dog curled up in the warm kitchen.
+The house settled into a peaceful silence.
+The next morning, they shared photos.
+The children told stories about the trip.
+The parents laughed at the funny moments.
+The family planned another beach trip soon.
+The children counted the days excitedly.
+The mother bought new swimsuits.
+The father fixed the old beach umbrella.
+The dog wagged his tail at the word beach.
+The family packed the car again.
+The children sang songs on the drive.
+The parents smiled at the cheerful voices.
+The trip became a favorite memory.
+The family returned to the beach every summer.
+The children grew up with these traditions.
+The parents grew older but still loved the ocean.
+The dog eventually grew too old to run on the sand.
+The family still made the trip every year.
+The grandchildren joined the family tradition.
+The old beach house held many memories.
+The family sat on the porch together.
+The waves still rolled onto the same shore.
+The sun still set behind the same horizon.
+The children still laughed at the same jokes.
+The parents still packed the same snacks.
+The dog's memory lived in every trip.
+The family never forgot the happy summers.
+The mother kept a photo of every year.
+The father wrote about the trips in a journal.
+The children read the stories to their own children.
+The grandchildren asked about the old dog.
+The family told the stories again.
+The tradition grew stronger every year.
+The beach house remained the same.
+The family never sold the old place.
+The waves still sang their quiet song.
+The sun still set behind the same horizon.
+The family still gathered every summer.
+The children still ran toward the water.
+The parents still laughed at old stories.
+The grandparents still told the same tales.
+The dog's collar still hung by the door.
+The family still felt his quiet presence.
+The summers passed but the love remained.
+The traditions lived on through the generations.
+The story of the beach house continued.
+The family still made new memories.
+The children eventually brought their own children.
+The house filled with even more laughter.
+The waves still rolled onto the shore.
+The sun still set behind the hills.
+The love still filled the old beach house.
+The memories still warmed every heart.
+The family still gathered every summer.
+The tradition never faded away.
+The story never really ended.
+The children would tell it to their children.
+The grandchildren would tell it to theirs.
+The beach house would always be home.
+The waves would always sing their song.
+The sun would always set behind the hills.
+The love would always fill the house.
+The family would always find their way back.
 `;
 dataEl.value = DEFAULT_CORPUS;
 
 let running = false, docs = [], step = 0, totalSteps = 0, opt = null;
 let losses = [], lo = Infinity, hi = 0;
 let trainedSteps = 0, savedLosses = [];
+let savedOpt = null;
 let runStart = 0;
+let bestLoss = Infinity, patience = 0;
+const PATIENCE = 500, MIN_STEPS = 300;
+let fineTuning = false;
+
+/* ===================== GRAMMAR GENERATOR ===================== */
+const NOUNS = {
+  people: ['boy', 'girl', 'man', 'woman', 'child', 'teacher', 'doctor', 'farmer', 'mother', 'father', 'student', 'artist', 'driver', 'singer', 'writer', 'neighbor', 'stranger', 'traveler', 'worker', 'guard'],
+  animals: ['cat', 'dog', 'bird', 'horse', 'fox', 'bear', 'owl', 'lion', 'wolf', 'deer', 'frog', 'spider', 'bee', 'ant', 'butterfly'],
+  food: ['apple', 'bread', 'cake', 'egg', 'cookie', 'pizza', 'soup', 'cheese'],
+  objects: ['book', 'ball', 'chair', 'table', 'box', 'key', 'lamp', 'cup', 'pen', 'bag', 'phone', 'watch', 'mirror', 'window', 'door', 'pencil', 'notebook', 'camera', 'guitar', 'bike'],
+  places: ['house', 'school', 'park', 'garden', 'market', 'library', 'city', 'forest', 'beach', 'river', 'mountain', 'village', 'street', 'station', 'harbor', 'meadow', 'valley', 'island', 'desert', 'cave']
+};
+
+const ADJECTIVES = [
+  'big', 'small', 'old', 'young', 'happy', 'sad', 'warm', 'cold', 'bright', 'dark', 'quiet', 'loud', 
+  'soft', 'hard', 'sweet', 'bitter', 'tall', 'short', 'long', 'new', 'heavy', 'light', 'clean', 'dirty', 
+  'fresh', 'empty', 'full', 'busy', 'calm', 'brave', 'beautiful', 'strange', 'weird', 'tiny', 'huge', 'common'
+];
+
+const VERBS = {
+  animateIntrans: ['runs', 'walks', 'jumps', 'swims', 'dances', 'sings', 'sleeps', 'wanders', 'smiles', 'laughs', 'waits', 'sits', 'stands'],
+  inanimateIntrans: ['falls', 'rises', 'appears', 'disappears', 'grows'],
+  foodVerbs: ['eats', 'cooks', 'bakes', 'tastes'],
+  trans: ['sees', 'finds', 'carries', 'reads', 'writes', 'paints', 'cleans', 'builds', 'throws', 'catches', 'pushes', 'pulls', 'holds', 'likes', 'wants', 'watches', 'follows', 'helps', 'loves', 'needs', 'makes'],
+  link: ['is', 'seems', 'feels', 'looks', 'becomes', 'remains', 'appears', 'stays']
+};
+
+const _pick = a => a[Math.floor(Math.random() * a.length)];
+
+function withArticle(nounPhrase) {
+  const vowels = ['a', 'e', 'i', 'o', 'u'];
+  const firstWord = nounPhrase.split(' ')[0];
+  const isVowel = vowels.includes(firstWord.charAt(0).toLowerCase());
+  return (isVowel ? 'an ' : 'a ') + nounPhrase;
+}
+
+// type can be 'animate', 'food', 'place', 'object', 'any'
+function genNP(type = 'any', allowPronoun = false) {
+  if (allowPronoun && (type === 'animate' || type === 'any') && Math.random() < 0.3) {
+    return _pick(['he', 'she']); // "it" causes weirdness with verbs, skip it
+  }
+  
+  let pool = [];
+  if (type === 'animate') pool = [...NOUNS.people, ...NOUNS.animals];
+  else if (type === 'food') pool = NOUNS.food;
+  else if (type === 'place') pool = NOUNS.places;
+  else if (type === 'object') pool = NOUNS.objects;
+  else pool = [...NOUNS.people, ...NOUNS.animals, ...NOUNS.objects, ...NOUNS.food]; // Usually not places unless specified
+
+  const noun = _pick(pool);
+  let phrase = noun;
+  
+  if (Math.random() < 0.4) phrase = _pick(ADJECTIVES) + ' ' + phrase;
+  
+  // Add a prepositional phrase (e.g. "in the house") 
+  // Only attach to 'place' if it's an object/animal, otherwise it gets weird (farmer on an egg)
+  if (Math.random() < 0.3) {
+    const prep = _pick(['in', 'near', 'by', 'inside']);
+    const loc = _pick(NOUNS.places);
+    phrase += ' ' + prep + ' ' + withArticle(loc);
+  }
+  
+  return withArticle(phrase);
+}
+
+function genClause() {
+  const r = Math.random();
+  
+  if (r < 0.3) {
+    // ANIMATE INTRANSITIVE (The boy smiles.)
+    return genNP('animate', true) + ' ' + _pick(VERBS.animateIntrans);
+  } 
+  else if (r < 0.45) {
+    // INANIMATE INTRANSITIVE (The leaf falls.)
+    return genNP('object') + ' ' + _pick(VERBS.inanimateIntrans);
+  } 
+  else if (r < 0.65) {
+    // TRANSITIVE (The boy reads a book.)
+    const subj = genNP('animate', true);
+    const objType = Math.random() < 0.5 ? 'object' : 'food';
+    return subj + ' ' + _pick(VERBS.trans) + ' ' + genNP(objType);
+  } 
+  else if (r < 0.75) {
+    // FOOD PREP (The chef bakes a cake.)
+    return genNP('animate', true) + ' ' + _pick(VERBS.foodVerbs) + ' ' + genNP('food');
+  }
+  else {
+    // LINKING (The sky is blue.)
+    // Make sure we don't link people to "hard" or "empty"
+    const subj = Math.random() < 0.5 ? genNP('animate', true) : genNP('object');
+    const adj = _pick(ADJECTIVES.filter(a => !['hard', 'soft', 'empty', 'full'].includes(a) || subj.includes('box') || subj.includes('cup')));
+    return subj + ' ' + _pick(VERBS.link) + ' ' + adj;
+  }
+}
+
+const _cap = s => {
+  const first = s.split(' ')[0];
+  if(first === 'i') return 'I' + s.slice(1);
+  return s.charAt(0).toUpperCase() + s.slice(1);
+};
+
+const SHAPES = [
+  () => _cap(genClause()) + '.',
+  () => _cap(_pick(['Quickly', 'Slowly', 'Quietly', 'Loudly', 'Often', 'Suddenly']) + ', ' + genClause()) + '.',
+  () => _cap(genClause() + ' ' + _pick(['and', 'but', 'so']) + ' ' + genClause()) + '.',
+  () => _cap(_pick(['Because', 'Although', 'While', 'When', 'If', 'Since', 'After', 'Before']) + ' ' + genClause() + ', ' + genClause()) + '.',
+  () => _cap(genClause() + ' ' + _pick(['because', 'although', 'while', 'when', 'if', 'since', 'after', 'before']) + ' ' + genClause()) + '.'
+];
+
+const genOneSentence = () => SHAPES[Math.floor(Math.random() * SHAPES.length)]();
 
 function parseDocs(text){
   const lines = text.trim().split('\n').map(s=>s.trim()).filter(Boolean);
@@ -1707,7 +2432,7 @@ function drawChart(){
 }
 
 function startTraining(){
-  if(running) return;
+  if(running || fineTuning) return;
   docs = parseDocs(dataEl.value);
   if(docs.length < 2){ statusEl.textContent = 'Need at least 2 training sentences.'; return; }
 
@@ -1742,10 +2467,19 @@ function startTraining(){
   }
 
   totalSteps = Math.max(100, parseInt($('steps').value)||3000);
-  opt = { lr0: 0.008,
-          m: new Array(params.length).fill(0),
-          v: new Array(params.length).fill(0) };
+  if(continuing && opt && opt.m.length === params.length){
+    // Same session — keep warm Adam moments.
+    opt.lr0 = 0.008;
+  } else if(continuing && savedOpt && savedOpt.m.length === params.length){
+    opt = { lr0: 0.008, m: savedOpt.m.slice(), v: savedOpt.v.slice() };
+    savedOpt = null;
+  } else {
+    opt = { lr0: 0.008,
+            m: new Array(params.length).fill(0),
+            v: new Array(params.length).fill(0) };
+  }
   step = 0;
+bestLoss = Infinity; patience = 0;
   // Keep the loss curve continuous when continuing a saved model.
   if(!continuing){
     losses = [];
@@ -1775,10 +2509,17 @@ function tick(){
       batch.push(encodeDoc(vocab, doc));
     }
     const loss = trainStep(batch, step, totalSteps, opt);
-    if(!isFinite(loss)){ running=false; statusEl.textContent='Diverged — stopping.'; return; }
+    if(!isFinite(loss)){
+    running = false;
+    finishTraining();
+    statusEl.textContent = 'Diverged — stopped. Try fewer steps or a smaller corpus.';
+    return;
+  }
     losses.push(loss);
     if(loss < lo) lo = loss;
     if(loss > hi) hi = loss;
+    if(loss < bestLoss - 1e-3){ bestLoss = loss; patience = 0; }
+    else if(step > MIN_STEPS && ++patience > PATIENCE){ running = false; }
     step++;
   }
   drawChart();
@@ -1796,14 +2537,147 @@ function finishTraining(){
   const last = losses.length ? losses[losses.length-1].toFixed(3) : '—';
   const elapsedSec = (performance.now() - runStart) / 1000;
   statusEl.textContent = `done ✓ · total trained steps ${trainedSteps} · loss ${last} · ${fmtTime(elapsedSec)} this run`;
-  outEl.textContent = samples();
+  renderEditableSamples();
   updateStepHint();
+  refreshFilenameSuggestion();
 }
 
-function samples(){
-  const t = parseFloat($('temp').value);
-  const lines = Array.from({length:8}, ()=>generate(t)).filter(Boolean);
-  return lines.length ? lines.join('\n') : '(no output — try more steps or higher temperature)';
+function renderEditableSamples(){
+  try {
+    const t = parseFloat($('temp').value);
+    const prompt = ($('prompt').value || '').trim();
+    const lines = [];
+    for(let i = 0; i < 10; i++) lines.push(generate(t, prompt));
+
+    outEl.innerHTML = '';
+    for(let i = 0; i < 10; i++){
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.className = 'sample-edit';
+      inp.value = lines[i] || '';
+      inp.dataset.original = lines[i] || '';
+      inp.title = 'Edit if wrong. Unedited lines are treated as already correct.';
+      inp.style.cssText =
+        'width:100%;margin:4px 0;background:var(--panel);color:var(--ink);' +
+        'border:1px solid var(--line);border-radius:6px;padding:6px 8px;' +
+        'font:12px ui-monospace,monospace';
+      inp.addEventListener('input', () => {
+        const isDirty = inp.value.trim() !== inp.dataset.original.trim();
+        inp.style.borderColor = isDirty ? 'var(--acc)' : 'var(--line)';
+      });
+      outEl.appendChild(inp);
+    }
+    submitCorrBtn.disabled = false;
+    feedbackEl.textContent = 'Edit any wrong sentences, then Submit. Unedited = assumed correct.';
+  } catch(err){
+    outEl.innerHTML = '';
+    const d = document.createElement('div');
+    d.style.color = '#f88';
+    d.textContent = 'Generation error: ' + err.message;
+    outEl.appendChild(d);
+    submitCorrBtn.disabled = true;
+  }
+}
+
+function submitCorrections(){
+  if(!sd || !vocab){ feedbackEl.textContent = 'Train or load a model first.'; return; }
+  if(fineTuning) return;
+
+  const inputs = outEl.querySelectorAll('input.sample-edit');
+  if(inputs.length === 0){ feedbackEl.textContent = 'Generate samples first.'; return; }
+
+  // Split samples into corrections vs replay anchors
+  const edited = [];
+  const replay = [];
+  const newWords = new Set();
+  for(const inp of inputs){
+    const cur  = inp.value.trim();
+    const orig = (inp.dataset.original || '').trim();
+    if(!cur) continue;
+    if(cur === orig){
+      if(orig) replay.push(orig);          // unedited → keep as anchor
+    } else {
+      edited.push(cur);                     // edited → gradient target
+      for(const w of tokenize(cur).split(' ').filter(Boolean)){
+        if(!Object.prototype.hasOwnProperty.call(vocab.stoi, w)) newWords.add(w);
+      }
+    }
+  }
+
+  if(newWords.size > 0){
+    feedbackEl.textContent = '⚠ Please do not introduce new vocab: ' + Array.from(newWords).join(', ');
+    return;
+  }
+  if(edited.length === 0){
+    feedbackEl.textContent = 'No edits to submit — nothing to learn from.';
+    return;
+  }
+  if(replay.length === 0){
+    feedbackEl.textContent =
+      '⚠ Every sample was edited — no anchors to prevent forgetting. ' +
+      'Regenerate and leave some unedited, or reduce edits per round.';
+    return;
+  }
+
+  fineTuning = true;
+  submitCorrBtn.disabled = true;
+
+  const STEPS = 15;                // was 60–75
+  const LR    = 0.0003;            // was 0.001
+  const LOSS_STOP = 0.5;           // stop early if loss dives below this
+  const totalForSchedule = STEPS * 100;
+  const localOpt = {
+    lr0: LR,
+    m: new Array(params.length).fill(0),
+    v: new Array(params.length).fill(0)
+  };
+
+  const editedIds = edited.map(s => encodeDoc(vocab, s));
+  const replayIds = replay.map(s => encodeDoc(vocab, s));
+
+  feedbackEl.textContent = `Fine-tuning on ${edited.length} correction(s) with ${replay.length} anchor(s)…`;
+
+  let i = 0;
+  let lastLoss = 0;
+
+  function finish(reason){
+    opt = localOpt;
+    trainedSteps += i;
+    losses.push(lastLoss);
+    submitCorrBtn.disabled = false;
+    saveBtn.disabled = false;
+    fineTuning = false;
+    refreshFilenameSuggestion('-ft');
+    if(reason) feedbackEl.textContent += ' ' + reason;
+  }
+
+  function stepFn(){
+    try {
+      // 2 corrections + 2 anchors per batch = 50/50 gradient balance
+      const batch = [];
+      for(let k = 0; k < 2; k++)              batch.push(editedIds[(i + k) % editedIds.length]);
+      for(let k = 0; k < 2 && replayIds.length; k++) batch.push(replayIds[(i + k) % replayIds.length]);
+
+      lastLoss = trainStep(batch, i, totalForSchedule, localOpt);
+      i++;
+
+      if(i >= 5 && lastLoss < LOSS_STOP){
+        finish(`✓ Early-stopped at step ${i} (loss ${lastLoss.toFixed(3)} < ${LOSS_STOP} — avoiding overfit). Save model.json to persist.`);
+        return;
+      }
+      if(i < STEPS){
+        if(i % 5 === 0) feedbackEl.textContent = `fine-tuning ${i}/${STEPS} · loss ${lastLoss.toFixed(3)}`;
+        setTimeout(stepFn, 0);
+      } else {
+        finish(`✓ Fine-tuned ${STEPS} steps · final loss ${lastLoss.toFixed(3)}. Save model.json to persist.`);
+      }
+    } catch(err){
+      feedbackEl.textContent = 'Fine-tune error: ' + err.message;
+      submitCorrBtn.disabled = false;
+      fineTuning = false;
+    }
+  }
+  stepFn();
 }
 
 function fmtTime(sec){
@@ -1850,14 +2724,12 @@ updateStepHint();
 trainBtn.onclick = startTraining;
 stopBtn.onclick = ()=>{
   if(!running) return;
-  running = false;
-  trainBtn.disabled = false; stopBtn.disabled = true;
-  genBtn.disabled = !sd; saveBtn.disabled = !sd;
+  finishTraining();
   const elapsedSec = (performance.now() - runStart) / 1000;
   statusEl.textContent += ` · stopped at ${fmtTime(elapsedSec)}`;
-  updateStepHint();
 };
-genBtn.onclick = ()=>{ outEl.textContent = samples(); };
+genBtn.onclick = ()=>{ renderEditableSamples(); };
+submitCorrBtn.onclick = submitCorrections;
 saveBtn.onclick = ()=>{ if(sd) exportModel(); };
 $('temp').oninput = e => { $('tempv').textContent = parseFloat(e.target.value).toFixed(2); };
 
@@ -1891,6 +2763,87 @@ $('file').addEventListener('change', async (e)=>{
     statusEl.textContent = 'Load failed: '+err.message;
   }
 });
+
+/* ===================== GRAMMAR GENERATOR UI ===================== */
+const grammarListEl     = $('grammarList');
+const grammarFeedbackEl = $('grammarFeedback');
+const grammarActionsEl  = $('grammarActions');
+const genGrammarBtn     = $('genGrammar');
+const approveGrammarBtn = $('approveGrammar');
+const rejectAllBtn      = $('rejectAll');
+
+genGrammarBtn.onclick = () => {
+  const lines = [];
+  const seen = new Set();
+  let guard = 0;
+  while(lines.length < 15 && guard < 200){
+    guard++;
+    const s = genOneSentence();
+    if(!seen.has(s)){ seen.add(s); lines.push(s); }
+  }
+
+  grammarListEl.innerHTML = '';
+  for(const line of lines){
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:6px;align-items:center;margin:4px 0';
+
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = true;
+    cb.style.cssText = 'width:auto;flex:0 0 auto;margin:0';
+
+    const inp = document.createElement('input');
+    inp.type = 'text';
+    inp.value = line;
+    inp.style.cssText =
+      'flex:1;font:12px ui-monospace,monospace;background:var(--panel);' +
+      'color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:5px 8px';
+
+    row.appendChild(cb);
+    row.appendChild(inp);
+    grammarListEl.appendChild(row);
+  }
+
+  grammarActionsEl.style.display = 'flex';
+  grammarFeedbackEl.textContent = `Generated ${lines.length}. Uncheck any you don't want; edit as needed.`;
+};
+
+approveGrammarBtn.onclick = () => {
+  const rows = grammarListEl.querySelectorAll('div');
+  const approved = [];
+  for(const row of rows){
+    const cb  = row.querySelector('input[type=checkbox]');
+    const inp = row.querySelector('input[type=text]');
+    if(cb && cb.checked && inp && inp.value.trim()) approved.push(inp.value.trim());
+  }
+  if(approved.length === 0){
+    grammarFeedbackEl.textContent = 'Nothing checked — nothing to add.';
+    return;
+  }
+  const existing = new Set(dataEl.value.split('\n').map(s => s.trim()).filter(Boolean));
+  const toAdd = approved.filter(s => !existing.has(s));
+  if(toAdd.length === 0){
+    grammarFeedbackEl.textContent = 'All approved lines are already in the corpus.';
+    return;
+  }
+  const base = dataEl.value.trim();
+  dataEl.value = (base ? base + '\n' : '') + toAdd.join('\n');
+  updateStepHint();
+
+  const total = dataEl.value.split('\n').filter(Boolean).length;
+  grammarFeedbackEl.textContent =
+    `Added ${toAdd.length} line(s)` +
+    (approved.length - toAdd.length > 0 ? ` (${approved.length - toAdd.length} already present)` : '') +
+    `. Total corpus: ${total} lines.`;
+  grammarListEl.innerHTML = '';
+  grammarActionsEl.style.display = 'none';
+};
+
+rejectAllBtn.onclick = () => {
+  grammarListEl.innerHTML = '';
+  grammarActionsEl.style.display = 'none';
+  grammarFeedbackEl.textContent = 'Rejected. Click Generate again for a new batch.';
+};
 </script>
 </body>
 </html>
