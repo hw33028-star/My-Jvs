@@ -1,0 +1,1464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Umm what is GPT</title>
+<style>
+  :root{--bg:#0f1220;--panel:#1a1f35;--ink:#e8ecff;--dim:#8f9ac2;--acc:#6ea8fe;--line:#2b3355}
+  *{box-sizing:border-box}
+  body{margin:0;font:14px/1.5 system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+  .wrap{max-width:760px;margin:0 auto;padding:14px}
+  h1{font-size:18px;margin:0 0 4px}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin:14px 0 6px}
+  p.sub{margin:0 0 12px;color:var(--dim);font-size:12px}
+  textarea{width:100%;background:var(--panel);color:var(--ink);border:1px solid var(--line);
+    border-radius:8px;padding:8px;font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;resize:vertical}
+  #data{height:120px}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0}
+  button{background:var(--acc);color:#08122b;border:0;border-radius:8px;padding:8px 14px;
+    font-weight:600;cursor:pointer;font-size:13px}
+  button:disabled{opacity:.35;cursor:not-allowed}
+  button.ghost{background:var(--line);color:var(--ink)}
+  label{color:var(--dim);font-size:12px;display:flex;align-items:center;gap:6px}
+  input[type=number],input[type=text]{background:var(--panel);color:var(--ink);
+    border:1px solid var(--line);border-radius:6px;padding:5px 8px;font:12px ui-monospace,monospace}
+  input[type=number]{width:80px}
+  input[type=text]{flex:1;min-width:200px}
+  input[type=range]{width:110px}
+  #status{font:12px/1.5 ui-monospace,monospace;color:var(--dim);min-height:20px;margin:6px 0}
+  canvas{width:100%;height:130px;background:var(--panel);border-radius:8px;display:block;margin:8px 0}
+  #out{font:13px/1.7 ui-monospace,monospace;background:var(--panel);border-radius:8px;
+    padding:12px;min-height:80px;white-space:pre-wrap}
+  .help{color:var(--dim);font-size:11px;margin-top:14px;line-height:1.6}
+  .help code{background:#232a45;padding:1px 5px;border-radius:3px;color:var(--acc)}
+  .file-lbl{background:var(--line);color:var(--ink);border-radius:8px;padding:8px 12px;
+    cursor:pointer;font-size:13px;font-weight:600}
+  .file-lbl input{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Tiny GPT — Train · Save · Load · Generate</h1>
+  <p class="sub">Word-level transformer with autograd, multi-head attention &amp; Adam — 100% vanilla JS. No PyTorch, no server, no libraries.</p>
+
+  <h2>Training sentences (one per line)</h2>
+  <textarea id="data" spellcheck="false"></textarea>
+
+  <div class="row">
+    <button id="train">Train</button>
+    <button id="stop" class="ghost" disabled>Stop</button>
+    <button id="gen" class="ghost" disabled>Generate</button>
+    <button id="save" class="ghost" disabled>💾 Save model.json</button>
+  </div>
+
+  <div class="row">
+    <label>Steps <input id="steps" type="number" value="3000" min="100" step="100"></label>
+    <label>Batch <input id="batch" type="number" value="4" min="1" max="16"></label>
+    <label>Temp <input id="temp" type="range" min="0.1" max="1.5" step="0.05" value="0.7"><span id="tempv">0.70</span></label>
+  </div>
+  <div class="row" style="margin-top:-4px">
+    <span id="stepHint" style="color:var(--dim);font-size:11px;cursor:pointer" title="Click to use this value"></span>
+  </div>
+
+  <h2>Load a saved brain</h2>
+  <div class="row">
+    <input id="url" type="text" placeholder="https://USER.github.io/REPO/model.json">
+    <button id="loadUrl" class="ghost">Load URL</button>
+    <label class="file-lbl">Load file<input id="file" type="file" accept=".json"></label>
+  </div>
+
+  <div id="status">Ready.</div>
+  <canvas id="chart" width="1400" height="260"></canvas>
+  <div id="out"></div>
+
+  <p class="help">
+    <b>GitHub workflow:</b> Train → Save <code>model.json</code> → commit to your repo →
+    enable Pages → paste <code>https://USER.github.io/REPO/model.json</code> above → Load URL.<br>
+    <b>Continue training:</b> Load a model, then click <b>Train</b> again — it picks up
+    from where it left off. Any <em>new</em> words in the textarea are appended to the vocab
+    (existing word IDs never shift), so old knowledge is preserved.<br>
+    <b>jsDelivr works too:</b> <code>https://cdn.jsdelivr.net/gh/USER/REPO@main/model.json</code>
+    (great for repos that also host this HTML).<br>
+    <b>Why it works:</b> GitHub Pages &amp; jsDelivr both send <code>Access-Control-Allow-Origin: *</code>,
+    so <code>fetch()</code> succeeds inside Google Sites' iframe.
+  </p>
+</div>
+
+<script>
+/* ===================== 1. AUTOGRAD ===================== */
+class V {
+  constructor(d, ch, lg){ this.d=d; this.g=0; this.ch=ch||[]; this.lg=lg||[]; }
+  add(o){ if(typeof o==='number') return new V(this.d+o,[this],[1]);
+          return new V(this.d+o.d,[this,o],[1,1]); }
+  mul(o){ if(typeof o==='number') return new V(this.d*o,[this],[o]);
+          return new V(this.d*o.d,[this,o],[o.d,this.d]); }
+  pow(n){ return new V(Math.pow(this.d,n),[this],[n*Math.pow(this.d,n-1)]); }
+  log(){ return new V(Math.log(this.d),[this],[1/this.d]); }
+  exp(){ const e=Math.exp(this.d); return new V(e,[this],[e]); }
+  relu(){ return new V(Math.max(0,this.d),[this],[this.d>0?1:0]); }
+  neg(){ return this.mul(-1); }
+  sub(o){ if(typeof o==='number') return new V(this.d-o,[this],[1]);
+          return this.add(o.neg()); }
+  div(o){ if(typeof o==='number') return new V(this.d/o,[this],[1/o]);
+          return this.mul(o.pow(-1)); }
+  backward(){
+    const topo=[], seen=new Set();
+    (function walk(v){ if(seen.has(v)) return; seen.add(v);
+      for(const c of v.ch) walk(c); topo.push(v); })(this);
+    this.g=1;
+    for(let i=topo.length-1;i>=0;i--){
+      const v=topo[i];
+      for(let j=0;j<v.ch.length;j++) v.ch[j].g += v.lg[j]*v.g;
+    }
+  }
+}
+
+/* ===================== 2. HELPERS ===================== */
+const sum    = a => a.reduce((p,c)=>p.add(c), new V(0));
+const mean   = a => sum(a).div(a.length);
+const dot    = (a,b)=>{ let s=a[0].mul(b[0]);
+                        for(let i=1;i<a.length;i++) s=s.add(a[i].mul(b[i]));
+                        return s; };
+const linear = (x,W)=> W.map(r => dot(r,x));
+const addv   = (a,b)=> a.map((ai,i)=>ai.add(b[i]));
+const transp = m => m[0].map((_,i)=>m.map(r=>r[i]));
+function softmax(l){
+  const m = Math.max(...l.map(v=>v.d));
+  const e = l.map(v=>v.sub(m).exp());
+  const s = sum(e);
+  return e.map(v=>v.div(s));
+}
+function rmsnorm(x){
+  const s = mean(x.map(v=>v.pow(2))).add(1e-5).pow(-0.5);
+  return x.map(v=>v.mul(s));
+}
+
+/* ===================== 3. CONFIG & INIT ===================== */
+const CFG = { nEmbd: 48, nHead: 4, nLayer: 2, blockSize: 16 };
+let vocab = null, sd = null, params = null;
+
+const randn = () => { let u=0; while(u===0) u=Math.random();
+  return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*Math.random()); };
+const mat  = (o,i,std=0.08)=> Array.from({length:o},()=>Array.from({length:i},()=>new V(randn()*std)));
+const matL = (o,i)=> Array.from({length:CFG.nLayer},()=>mat(o,i));
+
+function initSD(vocabSize){
+  const E = CFG.nEmbd;
+  return {
+    wte: mat(vocabSize,E), wpe: mat(CFG.blockSize,E),
+    wq: matL(E,E), wk: matL(E,E), wv: matL(E,E), wo: matL(E,E),
+    fc1: matL(4*E,E), fc2: matL(E,4*E),
+    head: mat(vocabSize,E)
+  };
+}
+function flattenParams(o,out){
+  for(const k in o){ const v=o[k];
+    if(v instanceof V) out.push(v);
+    else if(Array.isArray(v)) flattenParams(v,out); }
+  return out;
+}
+// Grows wte + head by `extra` new rows, appended at the end.
+// Existing rows (and therefore existing word IDs) are untouched.
+function resizeSD(sd, newVocabSize){
+  const E = CFG.nEmbd;
+  const oldSize = sd.wte.length;
+  if(oldSize >= newVocabSize) return sd;
+  for(let i=0;i<newVocabSize-oldSize;i++){
+    sd.wte.push(Array.from({length:E},()=> new V(randn()*0.08)));
+    sd.head.push(Array.from({length:E},()=> new V(randn()*0.08)));
+  }
+  return sd;
+}
+
+/* ===================== 4. FORWARD ===================== */
+function gpt(tokId,pos,keys,vals){
+  const { nEmbd:E, nHead:H, nLayer:L } = CFG, hd = E/H;
+  let x = addv(sd.wte[tokId], sd.wpe[pos]);
+  x = rmsnorm(x);
+  for(let l=0;l<L;l++){
+    let res = x.slice();
+    x = rmsnorm(x);
+    const q = linear(x, sd.wq[l]);
+    const k = linear(x, sd.wk[l]);
+    const v = linear(x, sd.wv[l]);
+    keys[l].push(k); vals[l].push(v);
+    const heads = [];
+    for(let h=0;h<H;h++){
+      const a = h*hd;
+      const qh = q.slice(a,a+hd);
+      const kh = keys[l].map(r=>r.slice(a,a+hd));
+      const vh = vals[l].map(r=>r.slice(a,a+hd));
+      const logits = kh.map(kk => dot(qh,kk).mul(1/Math.sqrt(hd)));
+      const w = softmax(logits);
+      for(const col of transp(vh)) heads.push(dot(w,col));
+    }
+    x = addv(linear(heads, sd.wo[l]), res);
+    res = x.slice();
+    x = rmsnorm(x);
+    x = linear(x, sd.fc1[l]).map(t=>t.relu());
+    x = addv(linear(x, sd.fc2[l]), res);
+  }
+  return linear(x, sd.head);
+}
+
+function docLoss(tokens){
+  const n = Math.min(CFG.blockSize, tokens.length-1);
+  const keys = Array.from({length:CFG.nLayer},()=>[]);
+  const vals = Array.from({length:CFG.nLayer},()=>[]);
+  const ls = [];
+  for(let p=0;p<n;p++){
+    const logits = gpt(tokens[p], p, keys, vals);
+    const probs  = softmax(logits);
+    ls.push(probs[tokens[p+1]].log().neg());
+  }
+  return mean(ls);
+}
+function batchLoss(batch){
+  const t = batch.reduce((acc,ids)=>acc.add(docLoss(ids)), new V(0));
+  return t.div(batch.length);
+}
+
+/* ===================== 5. TRAINING ===================== */
+function trainStep(batch, step, total, opt){
+  const loss = batchLoss(batch);
+  loss.backward();
+  const lr = opt.lr0 * (1 - step/total);
+  let gn = 0;
+  for(const p of params) gn += p.g*p.g;
+  gn = Math.sqrt(gn);
+  const clip = gn > 1 ? 1/gn : 1;
+  for(let i=0;i<params.length;i++){
+    const p = params[i];
+    const g = p.g * clip;
+    opt.m[i] = 0.9*opt.m[i] + 0.1*g;
+    opt.v[i] = 0.99*opt.v[i] + 0.01*g*g;
+    const mh = opt.m[i] / (1 - Math.pow(0.9, step+1));
+    const vh = opt.v[i] / (1 - Math.pow(0.99, step+1));
+    p.d -= lr * mh / (Math.sqrt(vh) + 1e-8);
+    p.g = 0;
+  }
+  return loss.d;
+}
+
+/* ===================== 6. GENERATE ===================== */
+function generate(temp){
+  const keys = Array.from({length:CFG.nLayer},()=>[]);
+  const vals = Array.from({length:CFG.nLayer},()=>[]);
+  const out = []; let id = 0;
+  for(let p=0;p<CFG.blockSize;p++){
+    const logits = gpt(id, p, keys, vals);
+    let probs;
+    if(temp <= 0.01){
+      probs = softmax(logits).map(t=>t.d);
+      id = probs.indexOf(Math.max(...probs));
+    } else {
+      probs = softmax(logits.map(t=>t.mul(1/temp))).map(t=>t.d);
+      const r = Math.random(); let c=0; id = probs.length-1;
+      for(let i=0;i<probs.length;i++){ c+=probs[i]; if(r<c){ id=i; break; } }
+    }
+    if(id === 1) break;           // EOS
+    if(id < 3) continue;          // skip BOS/UNK
+    out.push(id);
+  }
+  return out.map(i=>vocab.itos[i]).join(' ');
+}
+
+/* ===================== 7. TOKENIZER ===================== */
+function tokenize(text){
+  return text.toLowerCase()
+    .replace(/([.,!?;:])/g, ' $1 ')
+    .replace(/\s+/g,' ')
+    .trim();
+}
+function buildVocab(docs){
+  const words = new Set();
+  for(const d of docs){
+    for(const w of tokenize(d).split(' ')) if(w) words.add(w);
+  }
+  const itos = ['<bos>','<eos>','<unk>', ...Array.from(words).sort()];
+  const stoi = {}; itos.forEach((w,i)=>stoi[w]=i);
+  return { itos, stoi, vocabSize: itos.length };
+}
+function encodeDoc(vocab, doc){
+  const ids = [0];
+  for(const w of tokenize(doc).split(' ').filter(Boolean)){
+    ids.push(Object.prototype.hasOwnProperty.call(vocab.stoi, w) ? vocab.stoi[w] : 2);
+  }
+  ids.push(1);
+  return ids;
+}
+
+/* ===================== 8. EXPORT / IMPORT ===================== */
+function exportModel(){
+  const plain = {};
+  for(const k in sd){
+    plain[k] = JSON.parse(JSON.stringify(sd[k], (kk,v)=> v instanceof V ? v.d : v));
+  }
+  const bundle = {
+    version: 2,
+    config: { ...CFG, vocabSize: vocab.vocabSize },
+    itos: vocab.itos,
+    weights: plain,
+    trainedSteps: trainedSteps,
+    losses: losses.slice(-200)
+  };
+  const blob = new Blob([JSON.stringify(bundle)], { type:'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'model.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+function rebuildV(obj){
+  if(Array.isArray(obj)) return obj.map(rebuildV);
+  if(typeof obj === 'number') return new V(obj);
+  if(obj && typeof obj === 'object'){           // ← NEW: handle objects
+    const out = {};
+    for(const k in obj) out[k] = rebuildV(obj[k]);
+    return out;
+  }
+  return obj;
+}
+function importBundle(bundle){
+  if(bundle.version !== 1 && bundle.version !== 2) throw new Error('Unsupported model version');
+  Object.assign(CFG, bundle.config);
+  vocab = { itos: bundle.itos, stoi:{}, vocabSize: bundle.itos.length };
+  vocab.itos.forEach((w,i)=>vocab.stoi[w]=i);
+  sd = rebuildV(bundle.weights);
+  params = flattenParams(sd, []);
+  trainedSteps = bundle.trainedSteps || 0;
+  savedLosses  = Array.isArray(bundle.losses) ? bundle.losses.slice(-200) : [];
+  return params.length;
+}
+
+/* ===================== 9. UI ===================== */
+const $ = id => document.getElementById(id);
+const dataEl = $('data'), statusEl = $('status'), outEl = $('out'), chart = $('chart');
+const trainBtn = $('train'), stopBtn = $('stop'), genBtn = $('gen'), saveBtn = $('save');
+
+const DEFAULT_CORPUS = `the cat is cute .
+the cat is big .
+the cat is soft .
+the cat is small .
+the dog is big .
+the dog is kind .
+the dog is soft .
+the dog is fast .
+the bird is small .
+the bird is blue .
+the bird is pretty .
+the bird is loud .
+the fish is small .
+the fish is fast .
+the fish is quiet .
+the fish is big .
+the ball is red .
+the ball is round .
+the ball is new .
+the ball is big .
+the book is good .
+the book is new .
+the book is old .
+the book is short .
+the car is red .
+the car is fast .
+the car is new .
+the car is big .
+the bike is red .
+the bike is fast .
+the bike is small .
+the bike is new .
+the tree is green .
+the tree is tall .
+the tree is big .
+the tree is old .
+the flower is red .
+the flower is pretty .
+the flower is soft .
+the flower is small .
+the house is big .
+the house is new .
+the house is clean .
+the house is old .
+the room is big .
+the room is clean .
+the room is dark .
+the room is warm .
+the park is big .
+the park is green .
+the park is pretty .
+the park is quiet .
+the mat is red .
+the mat is big .
+the mat is soft .
+the mat is clean .
+the bed is big .
+the bed is warm .
+the bed is soft .
+the bed is clean .
+the chair is small .
+the chair is old .
+the chair is hard .
+the chair is new .
+the cup is small .
+the cup is red .
+the cup is new .
+the cup is clean .
+the hat is red .
+the hat is big .
+the hat is pretty .
+the hat is new .
+the shoe is small .
+the shoe is new .
+the shoe is old .
+the shoe is clean .
+the apple is red .
+the apple is good .
+the apple is big .
+the apple is sweet .
+the egg is small .
+the egg is new .
+the cake is good .
+the cake is warm .
+the cake is sweet .
+the cake is big .
+the bread is warm .
+the bread is good .
+the bread is soft .
+the milk is cold .
+the milk is warm .
+the water is cold .
+the water is warm .
+the water is clean .
+the sun is hot .
+the sun is bright .
+the sun is big .
+the moon is bright .
+the moon is full .
+the moon is small .
+the sky is blue .
+the sky is bright .
+the sky is big .
+the star is bright .
+the star is small .
+the sea is big .
+the sea is blue .
+the sea is deep .
+the garden is green .
+the garden is big .
+the garden is pretty .
+the street is long .
+the street is clean .
+the street is quiet .
+the beach is pretty .
+the beach is big .
+the beach is warm .
+the school is big .
+the school is new .
+the school is quiet .
+the store is big .
+the store is new .
+the store is full .
+the train is long .
+the train is fast .
+the bus is big .
+the bus is slow .
+the plane is fast .
+the plane is big .
+the boat is small .
+the phone is new .
+the phone is small .
+the watch is old .
+the watch is small .
+the tea is hot .
+the tea is good .
+the coffee is hot .
+the coffee is dark .
+the table is big .
+the table is clean .
+the door is big .
+the door is old .
+the window is big .
+the window is clean .
+the toy is new .
+the toy is soft .
+the doll is pretty .
+the doll is small .
+the box is big .
+the box is empty .
+the bag is new .
+the bag is small .
+the key is small .
+the key is old .
+the pen is new .
+the pen is blue .
+a cat is small .
+a cat is soft .
+a cat is big .
+a dog is big .
+a dog is kind .
+a dog is soft .
+a bird is small .
+a bird is pretty .
+a bird is blue .
+a fish is small .
+a fish is fast .
+a fish is quiet .
+a ball is round .
+a ball is new .
+a book is good .
+a book is new .
+a car is fast .
+a car is red .
+a bike is fast .
+a bike is new .
+a tree is tall .
+a tree is green .
+a flower is pretty .
+a flower is red .
+a house is big .
+a house is new .
+a room is warm .
+a room is clean .
+a mat is soft .
+a mat is big .
+a bed is warm .
+a bed is soft .
+a chair is hard .
+a chair is small .
+a cup is small .
+a cup is clean .
+a hat is red .
+a hat is new .
+a shoe is new .
+a shoe is small .
+an apple is good .
+an apple is red .
+an egg is small .
+an egg is new .
+a cake is sweet .
+a cake is good .
+a train is long .
+a train is fast .
+a bus is big .
+a bus is slow .
+a plane is fast .
+a boat is small .
+a phone is new .
+a phone is small .
+a star is bright .
+a star is small .
+the cat sits .
+the cat runs .
+the cat sleeps .
+the cat eats .
+the cat drinks .
+the dog sits .
+the dog runs .
+the dog sleeps .
+the dog eats .
+the dog drinks .
+the bird sings .
+the bird flies .
+the bird eats .
+the fish swims .
+the fish eats .
+the boy plays .
+the boy runs .
+the boy jumps .
+the boy smiles .
+the boy laughs .
+the boy reads .
+the boy eats .
+the girl plays .
+the girl runs .
+the girl jumps .
+the girl smiles .
+the girl laughs .
+the girl reads .
+the girl eats .
+the man walks .
+the man smiles .
+the man reads .
+the man eats .
+the man sits .
+the woman walks .
+the woman smiles .
+the woman reads .
+the woman sits .
+the baby sleeps .
+the baby cries .
+the baby smiles .
+the baby eats .
+the baby drinks .
+the cat sits on the mat .
+the cat sits on the bed .
+the cat sits on the chair .
+the cat sits on the floor .
+the cat sits on the table .
+the cat sleeps on the mat .
+the cat sleeps on the bed .
+the cat sleeps on the chair .
+the dog sits on the mat .
+the dog sits on the bed .
+the dog sits on the chair .
+the dog sits on the floor .
+the dog sleeps on the mat .
+the dog sleeps on the bed .
+the dog sleeps on the floor .
+the bird sits on the tree .
+the bird sits on the branch .
+the bird sits on the roof .
+the bird sings in the tree .
+the bird sings in the garden .
+the bird sings in the morning .
+the bird flies in the sky .
+the bird flies in the park .
+the bird flies in the garden .
+the fish swims in the water .
+the fish swims in the sea .
+the fish swims in the lake .
+the fish swims in the pond .
+the boy plays in the park .
+the boy plays in the garden .
+the boy plays in the yard .
+the boy plays in the school .
+the boy runs in the park .
+the boy runs in the yard .
+the girl plays in the park .
+the girl plays in the garden .
+the girl plays in the yard .
+the girl plays in the school .
+the girl runs in the park .
+the girl runs in the yard .
+the man walks in the park .
+the man walks in the street .
+the man walks in the garden .
+the woman walks in the park .
+the woman walks in the street .
+the woman walks in the garden .
+the cat eats in the kitchen .
+the cat eats in the house .
+the dog eats in the kitchen .
+the dog eats in the house .
+the cat drinks in the kitchen .
+the dog drinks in the kitchen .
+the cat is on the mat .
+the cat is on the bed .
+the cat is on the chair .
+the dog is on the mat .
+the dog is on the bed .
+the book is on the table .
+the cup is on the table .
+the hat is on the chair .
+the cat is in the house .
+the cat is in the room .
+the cat is in the garden .
+the dog is in the house .
+the dog is in the room .
+the cat is under the chair .
+the cat is under the bed .
+the dog is under the chair .
+the ball is under the bed .
+the cat plays with the ball .
+the cat plays with the toy .
+the cat plays with the doll .
+the dog plays with the ball .
+the dog plays with the toy .
+the dog plays with the doll .
+the boy plays with the ball .
+the boy plays with the toy .
+the boy plays with the doll .
+the boy plays with the box .
+the girl plays with the doll .
+the girl plays with the ball .
+the girl plays with the toy .
+the girl plays with the box .
+the baby plays with the toy .
+the baby plays with the ball .
+the cat plays with the dog .
+the dog plays with the cat .
+the boy plays with the girl .
+the girl plays with the boy .
+i like the cat .
+i like the dog .
+i like the bird .
+i like the fish .
+i like the ball .
+i like the book .
+i like the cake .
+i like the tea .
+i like the coffee .
+i like the hat .
+i like the toy .
+i like the doll .
+i like the flower .
+i like the tree .
+i like a cat .
+i like a dog .
+i like a bird .
+i like a ball .
+i like a book .
+i like a cake .
+i see the cat .
+i see the dog .
+i see the bird .
+i see the fish .
+i see the tree .
+i see the flower .
+i see the sun .
+i see the moon .
+i see the star .
+i see the house .
+i see the car .
+i see the park .
+i see a cat .
+i see a dog .
+i see a bird .
+i see a flower .
+i see a tree .
+i see a house .
+i want the ball .
+i want the cake .
+i want the book .
+i want the tea .
+i want the toy .
+i want a ball .
+i want a cake .
+i want a book .
+i want a toy .
+i like my cat .
+i like my dog .
+i like my book .
+i like my ball .
+i like my home .
+i like my school .
+i like my family .
+i like my friend .
+i see my cat .
+i see my dog .
+i see my friend .
+i want my ball .
+i want my book .
+we go to the park .
+we go to the store .
+we go to the school .
+we go to the beach .
+we go to the garden .
+we go to the house .
+we go to the city .
+we go to the lake .
+we go to the pond .
+we go to the sea .
+we go to the room .
+we go to the yard .
+we go to the market .
+we go to the forest .
+we go to the station .
+we play in the park .
+we play in the garden .
+we play in the yard .
+we play in the school .
+we play in the room .
+we eat in the kitchen .
+we eat in the room .
+we eat in the park .
+we eat at home .
+we sleep in the bed .
+we sleep in the room .
+we sleep in the house .
+we read in the room .
+we read in the park .
+we read in the garden .
+we walk in the park .
+we walk in the street .
+we walk in the garden .
+we run in the park .
+we run in the yard .
+the boy is happy .
+the boy is sad .
+the boy is tall .
+the boy is short .
+the boy is nice .
+the boy is kind .
+the boy is smart .
+the boy is funny .
+the boy is young .
+the boy is hungry .
+the girl is happy .
+the girl is sad .
+the girl is tall .
+the girl is short .
+the girl is nice .
+the girl is kind .
+the girl is smart .
+the girl is funny .
+the girl is young .
+the girl is hungry .
+the man is tall .
+the man is short .
+the man is nice .
+the man is kind .
+the man is smart .
+the man is funny .
+the man is old .
+the man is hungry .
+the woman is tall .
+the woman is short .
+the woman is nice .
+the woman is kind .
+the woman is smart .
+the woman is funny .
+the woman is old .
+the woman is hungry .
+the baby is small .
+the baby is happy .
+the baby is young .
+the baby is tired .
+the baby is hungry .
+the mom is nice .
+the mom is kind .
+the mom is happy .
+the mom is tired .
+the dad is nice .
+the dad is kind .
+the dad is happy .
+the dad is tired .
+the friend is nice .
+the friend is kind .
+the friend is smart .
+the friend is funny .
+sam is nice .
+sam is kind .
+sam is happy .
+sam is smart .
+sam is funny .
+anna is nice .
+anna is kind .
+anna is happy .
+anna is smart .
+anna is funny .
+my cat is nice .
+my cat is small .
+my cat is soft .
+my dog is big .
+my dog is kind .
+my dog is soft .
+my toy is new .
+my toy is soft .
+my book is good .
+my book is old .
+my car is red .
+my car is fast .
+my home is big .
+my home is warm .
+my school is big .
+my school is new .
+my mom is nice .
+my mom is kind .
+my mom is happy .
+my dad is nice .
+my dad is kind .
+my dad is happy .
+my friend is nice .
+my friend is kind .
+my friend is smart .
+my friend is funny .
+the cat and the dog play .
+the cat and the dog are friends .
+the cat and the bird play .
+the cat and the bird are friends .
+the dog and the bird play .
+the dog and the bird are friends .
+the boy and the girl play .
+the boy and the girl are friends .
+the boy and the dog play .
+the girl and the cat play .
+the man and the woman are friends .
+the man and the woman play .
+my mom and my dad are friends .
+my mom and my dad play .
+sam and anna are friends .
+sam and anna play .
+a cat and a dog play .
+a cat and a bird play .
+a dog and a bird play .
+a cat and a dog are friends .
+a boy and a girl play .
+a boy and a girl are friends .
+we like to play together .
+we like to eat together .
+we like to read together .
+we like to run together .
+we like to walk together .
+we like to sing together .
+we like to dance together .
+we like to jump together .
+we play together .
+we eat together .
+we read together .
+we run together .
+we walk together .
+we sing together .
+we dance together .
+we sleep together .
+what is your name ?
+my name is sam .
+my name is anna .
+my name is john .
+my name is mary .
+what is your age ?
+i am ten years old .
+i am five years old .
+i am eight years old .
+how are you ?
+i am fine .
+i am happy .
+i am tired .
+where do you live ?
+i live in the city .
+i live in the town .
+i live in the house .
+what is this ?
+this is a book .
+this is a cat .
+this is a ball .
+what is that ?
+that is a dog .
+that is a tree .
+that is a car .
+how old are you ?
+i am young .
+i am old .
+who is this ?
+this is my friend .
+this is my mom .
+this is my dad .
+who is that ?
+that is my friend .
+that is my cat .
+that is my dog .
+the cat has a ball .
+the cat has a toy .
+the cat has a hat .
+the dog has a ball .
+the dog has a toy .
+the dog has a bone .
+the boy has a book .
+the boy has a toy .
+the boy has a ball .
+the girl has a book .
+the girl has a toy .
+the girl has a doll .
+the man has a car .
+the man has a hat .
+the woman has a car .
+the woman has a hat .
+the baby has a toy .
+the baby has a ball .
+the boy has a bike .
+the girl has a bike .
+the cat is on the mat .
+the cat is on the bed .
+the cat is on the table .
+the cat is in the room .
+the cat is in the house .
+the cat is under the chair .
+the cat is under the table .
+the dog is on the mat .
+the dog is on the bed .
+the dog is in the room .
+the dog is in the house .
+the dog is under the chair .
+the book is on the table .
+the book is on the bed .
+the cup is on the table .
+the cup is on the mat .
+the ball is under the bed .
+the ball is under the table .
+the hat is on the chair .
+the hat is on the bed .
+the toy is in the box .
+the toy is on the bed .
+the cat is near the door .
+the dog is near the door .
+the ball is near the door .
+the cat likes the dog .
+the cat likes the bird .
+the cat likes the ball .
+the cat likes the toy .
+the dog likes the cat .
+the dog likes the bird .
+the dog likes the ball .
+the boy likes the girl .
+the boy likes the cat .
+the boy likes the dog .
+the boy likes the ball .
+the girl likes the boy .
+the girl likes the cat .
+the girl likes the dog .
+the girl likes the doll .
+the cat sees the dog .
+the cat sees the bird .
+the cat sees the ball .
+the dog sees the cat .
+the dog sees the bird .
+the dog sees the ball .
+the boy sees the girl .
+the boy sees the cat .
+the girl sees the boy .
+the girl sees the dog .
+the cat wants the ball .
+the cat wants the toy .
+the dog wants the ball .
+the dog wants the toy .
+the boy wants the ball .
+the boy wants the book .
+the girl wants the doll .
+the girl wants the book .
+there is a cat .
+there is a dog .
+there is a bird .
+there is a fish .
+there is a ball .
+there is a book .
+there is a tree .
+there is a flower .
+there is a house .
+there is a car .
+there is a cat in the room .
+there is a dog in the room .
+there is a book on the table .
+there is a cup on the table .
+there is a bird in the tree .
+there is a fish in the water .
+there is a cat on the mat .
+there is a dog on the bed .
+good morning .
+good afternoon .
+good evening .
+good night .
+hello .
+hi .
+bye .
+see you later .
+see you soon .
+thank you .
+you are welcome .
+have a nice day .
+have a good day .
+nice to meet you .
+see you tomorrow .
+see you tonight .
+my cat likes the ball .
+my cat likes the toy .
+my dog likes the ball .
+my dog likes the toy .
+my cat sees the bird .
+my dog sees the cat .
+the boy has a red ball .
+the girl has a red ball .
+the boy has a blue hat .
+the girl has a blue hat .
+the cat runs in the park .
+the dog runs in the park .
+the cat runs in the garden .
+the dog runs in the garden .
+the cat sleeps in the room .
+the dog sleeps in the room .
+the baby sleeps in the room .
+the baby sleeps in the bed .
+the girl reads in the room .
+the boy reads in the room .
+the girl reads in the park .
+the boy reads in the park .
+sam likes the cat .
+sam likes the dog .
+anna likes the cat .
+anna likes the dog .
+sam has a cat .
+sam has a dog .
+anna has a cat .
+anna has a dog .
+sam sees the cat .
+anna sees the dog .
+i walk in the park .
+i walk in the garden .
+i walk in the street .
+i run in the park .
+i run in the yard .
+i play in the park .
+i play in the garden .
+i sleep in the bed .
+i sleep in the room .
+i read in the room .
+i read in the park .
+i eat in the kitchen .
+i eat at home .
+i drink the milk .
+i drink the tea .
+i eat the apple .
+i eat the bread .
+i eat the cake .
+i like the apple .
+i like the milk .
+i like the water .
+i like the bread .
+the sky is gray .
+the dust is gray .
+the car is gray .
+the cat is gray .
+the sun is yellow .
+the ball is yellow .
+the flower is yellow .
+the bird is yellow .
+the apple is yellow .
+the hat is yellow .
+the cup is yellow .
+the bag is yellow .
+the box is yellow .
+the flower is purple .
+the ball is purple .
+the hat is purple .
+the pen is purple .
+the book is purple .
+the bag is purple .
+the box is purple .
+the tree is brown .
+the branch is brown .
+the bread is brown .
+the dog is brown .
+the chair is brown .
+the table is brown .
+the door is brown .
+the bag is brown .
+the shoe is brown .
+the bike is brown .
+the boy listens .
+the girl listens .
+the man listens .
+the woman listens .
+the baby listens .
+my sister listens .
+my brother listens .
+the boy listens to the bird .
+the girl listens to the man .
+the boy helps the girl .
+the girl helps the boy .
+the man helps the woman .
+the woman helps the man .
+my sister helps my mom .
+my brother helps my dad .
+my mom cooks in the kitchen .
+my dad cooks in the kitchen .
+my grandma cooks the cake .
+my mom cooks the bread .
+the girl cleans the room .
+the boy cleans the room .
+my mom cleans the house .
+my dad cleans the car .
+my sister cleans the table .
+my brother cleans the cup .
+the boy draws a cat .
+the girl draws a dog .
+the boy draws a tree .
+the girl draws a flower .
+the boy opens the door .
+the girl opens the box .
+the man opens the window .
+the woman opens the bag .
+the boy closes the door .
+the girl closes the box .
+the man closes the window .
+the woman closes the bag .
+the boy waits in the park .
+the girl waits in the garden .
+the man waits in the street .
+the woman waits at home .
+my sister waits in the room .
+my brother waits in the yard .
+the dog waits near the door .
+the cat waits under the chair .
+the cat is on the bed .
+the cat is in the garden .
+the dog is in the garden .
+the boy is in the house .
+the girl is in the room .
+the baby is in the bed .
+the man is in the car .
+the woman is in the house .
+the bird is on the branch .
+the bird is in the sky .
+the fish is in the pond .
+the fish is in the lake .
+the flower is in the garden .
+the tree is in the yard .
+the ball is on the floor .
+the book is on the chair .
+the cup is on the bed .
+the hat is on the table .
+the bag is on the floor .
+the box is on the table .
+the key is on the table .
+the pen is on the book .
+the phone is on the bed .
+the watch is on the table .
+i walk in the garden .
+i walk in the yard .
+i run in the garden .
+i read a book .
+i draw a cat .
+i draw a tree .
+i like the yellow flower .
+i like the purple hat .
+i like the brown dog .
+i want the yellow ball .
+i see the yellow bird .
+we walk in the street .
+we run in the garden .
+we read in the room .
+we play in the yard .
+we eat the cake .
+we drink the tea .
+we like the cat .
+we like the dog .
+we like the flower .
+we see the moon .
+we see the star .
+we see the sun .
+the cat and the bird are friends .
+the dog and the cat are friends .
+the boy and the girl are friends .
+sam and anna like the cat .
+sam and anna like the dog .
+sam plays with anna .
+anna plays with sam .
+sam reads a book .
+anna reads a book .
+sam walks in the park .
+anna walks in the park .
+`;
+dataEl.value = DEFAULT_CORPUS;
+
+let running = false, docs = [], step = 0, totalSteps = 0, opt = null;
+let losses = [], lo = Infinity, hi = 0;
+let trainedSteps = 0, savedLosses = [];
+let runStart = 0;
+
+function parseDocs(text){
+  const lines = text.trim().split('\n').map(s=>s.trim()).filter(Boolean);
+  for(let i=lines.length-1;i>0;i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [lines[i],lines[j]] = [lines[j],lines[i]];
+  }
+  return lines;
+}
+
+function drawChart(){
+  const g = chart.getContext('2d');
+  const W = chart.width, H = chart.height, pad = 14;
+  g.clearRect(0,0,W,H);
+  if(losses.length < 2) return;
+  const n = losses.length;
+  const sx = (W-2*pad)/(n-1);
+  const range = (hi-lo)||1;
+  g.strokeStyle = '#6ea8fe'; g.lineWidth = 2; g.beginPath();
+  for(let i=0;i<n;i++){
+    const x = pad + i*sx;
+    const y = pad + (H-2*pad) * (1-(losses[i]-lo)/range);
+    i ? g.lineTo(x,y) : g.moveTo(x,y);
+  }
+  g.stroke();
+  g.fillStyle = '#8f9ac2'; g.font = '18px monospace';
+  g.fillText(`loss ${losses[n-1].toFixed(3)}   (min ${lo.toFixed(3)} · max ${hi.toFixed(3)})`, pad, 22);
+}
+
+function startTraining(){
+  if(running) return;
+  docs = parseDocs(dataEl.value);
+  if(docs.length < 2){ statusEl.textContent = 'Need at least 2 training sentences.'; return; }
+
+  const continuing = !!sd;
+  let info = '', newWordCount = 0;
+
+  if(continuing){
+    // Extend vocab with any new words from the current textarea.
+    // Existing word indices are preserved — new words are appended at the end.
+    const existing = new Set(vocab.itos);
+    const newWords = [];
+    for(const d of docs){
+      for(const w of tokenize(d).split(' ')){
+        if(w && !existing.has(w)){ existing.add(w); newWords.push(w); }
+      }
+    }
+    if(newWords.length > 0){
+      const mergedItos = [...vocab.itos, ...newWords];
+      const mergedStoi = {};
+      mergedItos.forEach((w,i)=>mergedStoi[w]=i);
+      vocab = { itos: mergedItos, stoi: mergedStoi, vocabSize: mergedItos.length };
+      sd = resizeSD(sd, vocab.vocabSize);
+      newWordCount = newWords.length;
+    }
+    params = flattenParams(sd, []);
+    info = `continuing · vocab ${vocab.vocabSize}${newWordCount?` (+${newWordCount} new words)`:''} · params ${params.length}`;
+  } else {
+    vocab = buildVocab(docs);
+    sd = initSD(vocab.vocabSize);
+    params = flattenParams(sd, []);
+    info = `vocab ${vocab.vocabSize} · params ${params.length}`;
+  }
+
+  totalSteps = Math.max(100, parseInt($('steps').value)||3000);
+  opt = { lr0: 0.008,
+          m: new Array(params.length).fill(0),
+          v: new Array(params.length).fill(0) };
+  step = 0;
+  // Keep the loss curve continuous when continuing a saved model.
+  if(!continuing){
+    losses = [];
+  } else if(losses.length === 0){
+    losses = savedLosses.slice(-200);
+  }
+  lo = Infinity; hi = 0;
+  for(const l of losses){ if(l<lo) lo=l; if(l>hi) hi=l; }
+
+  outEl.textContent = '';
+  running = true;
+  trainBtn.disabled = true; stopBtn.disabled = false;
+  genBtn.disabled = true; saveBtn.disabled = true;
+  runStart = performance.now();
+  statusEl.textContent = (continuing ? 'Continuing training · ' : 'Training… ') + info;
+  requestAnimationFrame(tick);
+}
+
+function tick(){
+  if(!running) return;
+  const t0 = performance.now();
+  const batchSize = Math.max(1, parseInt($('batch').value)||4);
+  while(running && step < totalSteps && performance.now()-t0 < 28){
+    const batch = [];
+    for(let i=0;i<batchSize;i++){
+      const doc = docs[(step*batchSize+i) % docs.length];
+      batch.push(encodeDoc(vocab, doc));
+    }
+    const loss = trainStep(batch, step, totalSteps, opt);
+    if(!isFinite(loss)){ running=false; statusEl.textContent='Diverged — stopping.'; return; }
+    losses.push(loss);
+    if(loss < lo) lo = loss;
+    if(loss > hi) hi = loss;
+    step++;
+  }
+  drawChart();
+  const elapsedSec = (performance.now() - runStart) / 1000;
+  statusEl.textContent = `step ${step}/${totalSteps} · loss ${losses[losses.length-1].toFixed(3)} · ${fmtTime(elapsedSec)} · params ${params.length}`;
+  if(running && step < totalSteps) requestAnimationFrame(tick);
+  else finishTraining();
+}
+
+function finishTraining(){
+  running = false;
+  trainedSteps += step;
+  trainBtn.disabled = false; stopBtn.disabled = true;
+  genBtn.disabled = false; saveBtn.disabled = false;
+  const last = losses.length ? losses[losses.length-1].toFixed(3) : '—';
+  const elapsedSec = (performance.now() - runStart) / 1000;
+  statusEl.textContent = `done ✓ · total trained steps ${trainedSteps} · loss ${last} · ${fmtTime(elapsedSec)} this run`;
+  outEl.textContent = samples();
+  updateStepHint();
+}
+
+function samples(){
+  const t = parseFloat($('temp').value);
+  const lines = Array.from({length:8}, ()=>generate(t)).filter(Boolean);
+  return lines.length ? lines.join('\n') : '(no output — try more steps or higher temperature)';
+}
+
+function fmtTime(sec){
+  if(sec < 60) return sec.toFixed(1) + 's';
+  const m = Math.floor(sec/60);
+  const s = Math.round(sec - m*60);
+  return `${m}m ${s}s`;
+}
+
+function updateStepHint(){
+  const hint = $('stepHint');
+  if(!hint) return;
+  const lines = dataEl.value.trim().split('\n').map(s=>s.trim()).filter(Boolean);
+  const n = lines.length;
+  const batch = Math.max(1, parseInt($('batch').value)||4);
+  const continuing = !!sd;
+  if(n < 2){ hint.textContent = ''; return; }
+
+  let newWords = 0;
+  if(continuing && vocab){
+    const existing = new Set(vocab.itos);
+    for(const d of lines){
+      for(const w of tokenize(d).split(' ')){
+        if(w && !existing.has(w)){ existing.add(w); newWords++; }
+      }
+    }
+  }
+
+  const epochs = continuing ? 5 : 12;
+  let suggested = Math.round(n / batch * epochs);
+  suggested = Math.max(500, Math.min(10000, suggested));
+  suggested = Math.round(suggested / 100) * 100;
+
+  let msg = `💡 ~${suggested} steps suggested · ${n} lines · batch ${batch} · ${epochs} epochs · ${continuing?'continuing':'from scratch'}`;
+  if(continuing && newWords > 0) msg += ` · +${newWords} new words`;
+  hint.textContent = msg;
+  hint.onclick = () => { $('steps').value = suggested; };
+}
+
+dataEl.addEventListener('input', updateStepHint);
+$('batch').addEventListener('input', updateStepHint);
+updateStepHint();
+
+trainBtn.onclick = startTraining;
+stopBtn.onclick = ()=>{
+  if(!running) return;
+  running = false;
+  trainBtn.disabled = false; stopBtn.disabled = true;
+  genBtn.disabled = !sd; saveBtn.disabled = !sd;
+  const elapsedSec = (performance.now() - runStart) / 1000;
+  statusEl.textContent += ` · stopped at ${fmtTime(elapsedSec)}`;
+  updateStepHint();
+};
+genBtn.onclick = ()=>{ outEl.textContent = samples(); };
+saveBtn.onclick = ()=>{ if(sd) exportModel(); };
+$('temp').oninput = e => { $('tempv').textContent = parseFloat(e.target.value).toFixed(2); };
+
+$('loadUrl').onclick = async ()=>{
+  const url = $('url').value.trim();
+  if(!url){ statusEl.textContent = 'Paste a URL first.'; return; }
+  statusEl.textContent = 'Fetching model…';
+  try {
+    const res = await fetch(url, { cache: 'no-cache' });
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    const bundle = await res.json();
+    const n = importBundle(bundle);
+    statusEl.textContent = `Loaded ${n} params from URL. Ready to generate.`;
+    genBtn.disabled = false; saveBtn.disabled = false;
+    updateStepHint();
+  } catch(err){
+    statusEl.textContent = 'Load failed: '+err.message+' — check that the URL is on GitHub Pages or jsDelivr (CORS).';
+  }
+};
+
+$('file').addEventListener('change', async (e)=>{
+  const f = e.target.files[0];
+  if(!f) return;
+  try {
+    const bundle = JSON.parse(await f.text());
+    const n = importBundle(bundle);
+    statusEl.textContent = `Loaded ${n} params from file. Ready to generate.`;
+    genBtn.disabled = false; saveBtn.disabled = false;
+    updateStepHint();
+  } catch(err){
+    statusEl.textContent = 'Load failed: '+err.message;
+  }
+});
+</script>
+</body>
+</html>
