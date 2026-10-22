@@ -117,9 +117,18 @@ class V {
 /* ===================== 2. HELPERS ===================== */
 const sum    = a => a.reduce((p,c)=>p.add(c), new V(0));
 const mean   = a => sum(a).div(a.length);
-const dot    = (a,b)=>{ let s=a[0].mul(b[0]);
-                        for(let i=1;i<a.length;i++) s=s.add(a[i].mul(b[i]));
-                        return s; };
+// Fused dot: one V node, ch = a∪b, lg = b.d∪a.d.
+// Backward: a[i].g += b[i].d * out.g ; b[i].g += a[i].d * out.g  — exact same gradient
+// as the chain of 2n-1 mul/add nodes, but 1 allocation instead of 2n-1.
+const dot = (a,b)=>{
+  const n = a.length;
+  let s = 0;
+  for(let i=0;i<n;i++) s += a[i].d * b[i].d;
+  const ch = a.concat(b);
+  const lg = new Array(n*2);
+  for(let i=0;i<n;i++){ lg[i] = b[i].d; lg[i+n] = a[i].d; }
+  return new V(s, ch, lg);
+};
 const linear = (x,W)=> W.map(r => dot(r,x));
 const addv   = (a,b)=> a.map((ai,i)=>ai.add(b[i]));
 const transp = m => m[0].map((_,i)=>m.map(r=>r[i]));
@@ -201,7 +210,21 @@ function gpt(tokId,pos,keys,vals){
   }
   return linear(x, sd.head);
 }
-
+// Fused cross-entropy: loss = logsumexp(logits) - logits[target]
+// Backward: logits[i].g += (softmax(logits)[i] - (i===target ? 1 : 0)) * out.g
+// Mathematically identical to softmax()[t].log().neg(), 1 allocation instead of ~5·V.
+function crossEntropy(logits, target){
+  const n = logits.length;
+  let m = -Infinity;
+  for(let i=0;i<n;i++) if(logits[i].d > m) m = logits[i].d;
+  let sumExp = 0;
+  const exps = new Array(n);
+  for(let i=0;i<n;i++){ exps[i] = Math.exp(logits[i].d - m); sumExp += exps[i]; }
+  const loss = Math.log(sumExp) + m - logits[target].d;
+  const lg = new Array(n);
+  for(let i=0;i<n;i++) lg[i] = exps[i]/sumExp - (i === target ? 1 : 0);
+  return new V(loss, logits, lg);
+}
 function docLoss(tokens){
   const n = Math.min(CFG.blockSize, tokens.length-1);
   const keys = Array.from({length:CFG.nLayer},()=>[]);
@@ -209,8 +232,7 @@ function docLoss(tokens){
   const ls = [];
   for(let p=0;p<n;p++){
     const logits = gpt(tokens[p], p, keys, vals);
-    const probs  = softmax(logits);
-    ls.push(probs[tokens[p+1]].log().neg());
+    ls.push(crossEntropy(logits, tokens[p+1]));
   }
   return mean(ls);
 }
@@ -1336,7 +1358,7 @@ function tick(){
   if(!running) return;
   const t0 = performance.now();
   const batchSize = Math.max(1, parseInt($('batch').value)||4);
-  while(running && step < totalSteps && performance.now()-t0 < 28){
+  while(running && step < totalSteps && performance.now()-t0 < 100){
     const batch = [];
     for(let i=0;i<batchSize;i++){
       const doc = docs[(step*batchSize+i) % docs.length];
